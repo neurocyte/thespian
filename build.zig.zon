@@ -1,0 +1,22 @@
+.{
+    .name = "thespian",
+    .version = "0.0.1",
+
+    .dependencies = .{
+        .asio = .{
+            .url = "https://github.com/kassane/asio/archive/5fc70d29f458f5b596a20bdf3d638294eef91478.tar.gz",
+            .hash = "1220926d7e934fcb9e4e55f25e24d17613fbe9b145798581e0ae7ea3679b37f4e44d",
+        },
+        .tracy = .{
+            .url = "https://github.com/neurocyte/zig-tracy/archive/d2113e7d778ebe7a063e95b5182ff145343aac38.tar.gz",
+            .hash = "122005c37f1324dcdd00600f266b64f0a66a73428550015ece51d52ae40a552608d1",
+        },
+    },
+    .paths = .{
+        "include",
+        "src",
+        "test",
+        "build.zig",
+        "build.zig.zon",
+    },
+}

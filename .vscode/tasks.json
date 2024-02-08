@@ -1,0 +1,52 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "process",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "dedicated",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "command": "./zig",
+            "args": [
+                "build",
+                "-freference-trace",
+                "--prominent-compile-errors"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$zig"
+        },
+        {
+            "label": "test",
+            "type": "process",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": true,
+                "panel": "dedicated",
+                "showReuseMessage": true,
+                "clear": true
+            },
+            "command": "./zig",
+            "args": [
+                "build",
+                "test",
+                "-freference-trace",
+                "--prominent-compile-errors"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "problemMatcher": "$zig"
+        }
+    ]
+}
