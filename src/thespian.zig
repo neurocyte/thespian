@@ -611,7 +611,7 @@ pub const metronome = struct {
 };
 
 pub const timeout = struct {
-    handle: *c.struct_thespian_timeout_handle,
+    handle: ?*c.struct_thespian_timeout_handle,
 
     const Self = @This();
 
@@ -623,16 +623,13 @@ pub const timeout = struct {
         return .{ .handle = c.thespian_timeout_create_ms(tick_time_us, m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
     }
 
-    pub fn start(self: *const Self) !void {
-        return neg_to_error(c.thespian_timeout_start(self.handle), error.ThespianTimeoutStartFailed);
+    pub fn cancel(self: *const Self) !void {
+        return neg_to_error(c.thespian_timeout_cancel(self.handle), error.ThespianTimeoutCancelFailed);
     }
 
-    pub fn stop(self: *const Self) !void {
-        return neg_to_error(c.thespian_timeout_stop(self.handle), error.ThespianTimeoutStopFailed);
-    }
-
-    pub fn deinit(self: *const Self) void {
+    pub fn deinit(self: *Self) void {
         c.thespian_timeout_destroy(self.handle);
+        self.handle = null;
     }
 };
 
