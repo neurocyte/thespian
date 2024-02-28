@@ -1,3 +1,5 @@
+#ifndef __APPLE__
+
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -100,3 +102,11 @@ extern "C" void install_jitdebugger() {
   else
     install_backtrace();
 }
+
+#else
+
+extern "C" void install_debugger() {}
+extern "C" void install_backtrace() {}
+extern "C" void install_jitdebugger() {}
+
+#endif

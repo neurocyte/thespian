@@ -6,7 +6,17 @@ ARCH=$(uname -m)
 BASEDIR="$(cd "$(dirname "$0")" && pwd)"
 ZIGDIR=$BASEDIR/.cache/zig
 VERSION=$(< build.zig.version)
-ZIGVER="zig-linux-$ARCH-$VERSION"
+
+OS=$(uname)
+
+if [ "$OS" == "Linux" ] ; then
+	OS=linux
+elif [ "$OS" == "Darwin" ] ; then
+	OS=macos
+fi
+
+
+ZIGVER="zig-$OS-$ARCH-$VERSION"
 ZIG=$ZIGDIR/$ZIGVER/zig
 
 if [ "$1" == "update" ] ; then
@@ -14,13 +24,15 @@ if [ "$1" == "update" ] ; then
     NEWVERSION=$(< build.zig.version)
 
     if [ "$VERSION" != "$NEWVERSION" ] ; then
+        echo zig version updated from $VERSION to $NEWVERSION
+        echo rebuilding to update cdb...
         $0 cdb
-        exec $0
+        exit 0
     fi
     echo zig version $VERSION is up-to-date
     exit 0
 fi
-
+    
 get_zig() {
     (
         mkdir -p "$ZIGDIR"
@@ -36,7 +48,6 @@ get_zig
 
 if [ "$1" == "cdb" ] ; then
     rm -rf zig-cache
-    rm -rf zig-bin
     rm -rf .cache/cdb
 
     $ZIG build

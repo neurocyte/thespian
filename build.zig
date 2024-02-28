@@ -8,6 +8,8 @@ const cppflags = [_][]const u8{
     "-Wall",
     "-Wextra",
     "-Werror",
+    "-Wpedantic",
+    "-Wno-deprecated-declarations",
     "-Wno-unqualified-std-cast-call",
     "-Wno-bitwise-instead-of-logical", //for notcurses
     "-fno-sanitize=undefined",
@@ -24,12 +26,7 @@ pub fn build(b: *std.Build) void {
 
     const options_mod = options.createModule();
 
-    const target = b.standardTargetOptions(.{
-        .default_target = if (tracy_enabled)
-            CrossTarget.parse(.{ .arch_os_abi = "native-native-gnu" }) catch unreachable
-        else
-            CrossTarget.parse(.{ .arch_os_abi = "native-native-musl" }) catch unreachable,
-    });
+    const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const mode = .{ .target = target, .optimize = optimize };
 

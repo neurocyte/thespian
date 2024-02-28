@@ -4,7 +4,7 @@
 
     .dependencies = .{
         .asio = .{
-            .url = "https://github.com/kassane/asio/archive/5fc70d29f458f5b596a20bdf3d638294eef91478.tar.gz",
+            .url = "https://github.com/kassane/asio/archive/cfec4608112abd44462afbad427d0f2ca3e30199.tar.gz",
             .hash = "1220926d7e934fcb9e4e55f25e24d17613fbe9b145798581e0ae7ea3679b37f4e44d",
         },
         .tracy = .{

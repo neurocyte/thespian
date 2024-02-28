@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("tests.h");
 });
@@ -17,7 +18,9 @@ test "debug" {
 }
 
 test "endpoint_unx" {
-    try testcase("endpoint_unx");
+    if (builtin.os.tag == .linux) {
+        try testcase("endpoint_unx");
+    }
 }
 
 test "endpoint_tcp" {
