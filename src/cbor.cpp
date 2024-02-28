@@ -126,7 +126,7 @@ static auto push_json_number(buffer &buf, json_iter &b, const json_iter &e)
   if (c >= '0' && c <= '9') {
     ++b;
     *p = c;
-    ++p; 
+    ++p;
     if (p == se)
       return false;
   } else
@@ -411,7 +411,7 @@ static auto decode_string(uint8_t type, iter &b, const iter &e) -> string_view {
   return {
       reinterpret_cast< // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
           const char *>(s),
-      sz};
+      static_cast<size_t>(sz)};
 }
 
 static auto decode_bytes(uint8_t type, iter &b, const iter &e) -> string_view {
@@ -570,7 +570,8 @@ auto buffer::match_value(iter &b, const iter &e, type t) -> bool {
   return false;
 }
 
-static auto match_uint(iter &b, const iter &e, uint64_t &val) -> bool {
+static auto match_uint(iter &b, const iter &e, unsigned long long int &val)
+    -> bool {
   const auto [major, minor, type] = decode_type(b, e);
   if (major != 0)
     return false;
@@ -578,7 +579,8 @@ static auto match_uint(iter &b, const iter &e, uint64_t &val) -> bool {
   return true;
 }
 
-static auto match_int(iter &b, const iter &e, int64_t &val) -> bool {
+static auto match_int(iter &b, const iter &e, signed long long int &val)
+    -> bool {
   const auto [major, minor, type] = decode_type(b, e);
   switch (major) {
   case 0:                           // positive integer
@@ -595,8 +597,17 @@ static auto match_int(iter &b, const iter &e, int64_t &val) -> bool {
   return true;
 }
 
-auto buffer::match_value(iter &b, const iter &e, int64_t lit) -> bool {
-  int64_t val{0};
+auto buffer::match_value(iter &b, const iter &e, unsigned long long int lit)
+    -> bool {
+  unsigned long long int val{0};
+  if (match_uint(b, e, val))
+    return val == lit;
+  return false;
+}
+
+auto buffer::match_value(iter &b, const iter &e, signed long long int lit)
+    -> bool {
+  signed long long int val{0};
   if (match_int(b, e, val))
     return val == lit;
   return false;
@@ -660,10 +671,9 @@ auto extract(type &t) -> buffer::extractor {
 
 template <typename T> static auto extract_int(T &i) -> buffer::extractor {
   return [&i](iter &b, const iter &e) {
-    int64_t i_{};
+    signed long long int i_{};
     if (match_int(b, e, i_)) {
-      if (i_ < int64_t(numeric_limits<T>::min()) or
-          i_ > int64_t(numeric_limits<T>::max()))
+      if (i_ < numeric_limits<T>::min() or i_ > numeric_limits<T>::max())
         return false;
       i = i_;
       return true;
@@ -671,19 +681,22 @@ template <typename T> static auto extract_int(T &i) -> buffer::extractor {
     return false;
   };
 }
-auto extract(int64_t &i) -> buffer::extractor { return extract_int(i); }
-auto extract(int32_t &i) -> buffer::extractor { return extract_int(i); }
-auto extract(int16_t &i) -> buffer::extractor { return extract_int(i); }
-auto extract(int8_t &i) -> buffer::extractor { return extract_int(i); }
+// clang-format off
+auto extract(signed long long int &i) -> buffer::extractor { return extract_int(i); }
+auto extract(signed long int &i) -> buffer::extractor { return extract_int(i); }
+auto extract(signed int &i) -> buffer::extractor { return extract_int(i); }
+auto extract(signed short int &i) -> buffer::extractor { return extract_int(i); }
+auto extract(signed char &i) -> buffer::extractor { return extract_int(i); }
+// clang-format on
 
-auto extract(uint64_t &i) -> buffer::extractor {
+auto extract(unsigned long long int &i) -> buffer::extractor {
   return [&i](iter &b, const iter &e) { return match_uint(b, e, i); };
 }
 template <typename T> static auto extract_uint(T &i) -> buffer::extractor {
   return [&i](iter &b, const iter &e) {
-    uint64_t i_{};
+    unsigned long long int i_{};
     if (match_uint(b, e, i_)) {
-      if (i_ > uint64_t(numeric_limits<T>::max()))
+      if (i_ > numeric_limits<T>::max())
         return false;
       i = i_;
       return true;
@@ -691,12 +704,12 @@ template <typename T> static auto extract_uint(T &i) -> buffer::extractor {
     return false;
   };
 }
-auto extract(unsigned long long &i) -> buffer::extractor {
-  return extract_uint(i);
-}
-auto extract(uint32_t &i) -> buffer::extractor { return extract_uint(i); }
-auto extract(uint16_t &i) -> buffer::extractor { return extract_uint(i); }
-auto extract(uint8_t &i) -> buffer::extractor { return extract_uint(i); }
+// clang-format off
+auto extract(unsigned long int &i) -> buffer::extractor { return extract_uint(i); }
+auto extract(unsigned int &i) -> buffer::extractor { return extract_uint(i); }
+auto extract(unsigned short int &i) -> buffer::extractor { return extract_uint(i); }
+auto extract(unsigned char &i) -> buffer::extractor { return extract_uint(i); }
+// clang-format on
 
 auto extract(bool &val) -> buffer::extractor {
   return [&val](iter &b, const iter &e) { return match_bool(b, e, val); };
@@ -872,7 +885,8 @@ auto buffer::range::to_json(ostream &os) const -> void {
 extern "C" void cbor_to_json(cbor_buffer buf, cbor_to_json_callback cb) {
   auto cbor = cbor::buffer();
   const uint8_t *data = buf.base;
-  std::copy(data, data + buf.len, back_inserter(cbor)); // NOLINT(*-pointer-arithmetic)
+  std::copy(data, data + buf.len,
+            back_inserter(cbor)); // NOLINT(*-pointer-arithmetic)
   auto json = cbor.to_json();
   cb({json.data(), json.size()});
 }
@@ -900,27 +914,22 @@ template <typename T> static auto get(iter b, const iter &e) -> T {
   extract(val)(b, e);
   return val;
 }
+
+// clang-format off
 buffer::value_accessor::operator type() const { return get<type>(b, e); }
-buffer::value_accessor::operator int64_t() const { return get<int64_t>(b, e); }
-buffer::value_accessor::operator uint64_t() const { return get<int64_t>(b, e); }
-buffer::value_accessor::operator int32_t() const {
-  return get<int64_t>(b, e); // NOLINT(*-narrowing-conversions)
-}
-buffer::value_accessor::operator uint32_t() const { return get<int64_t>(b, e); }
-buffer::value_accessor::operator int16_t() const {
-  return get<int64_t>(b, e); // NOLINT(*-narrowing-conversions)
-}
-buffer::value_accessor::operator uint16_t() const { return get<int64_t>(b, e); }
-buffer::value_accessor::operator int8_t() const {
-  return get<int64_t>(b, e); // NOLINT(*-narrowing-conversions)
-}
-buffer::value_accessor::operator uint8_t() const { return get<int64_t>(b, e); }
+buffer::value_accessor::operator unsigned long long int() const { return get<unsigned long long int>(b, e); }
+buffer::value_accessor::operator unsigned long int() const { return get<unsigned long int>(b, e); }
+buffer::value_accessor::operator unsigned int() const { return get<unsigned int>(b, e); }
+buffer::value_accessor::operator unsigned short int() const { return get<unsigned short int>(b, e); }
+buffer::value_accessor::operator unsigned char() const { return get<unsigned char>(b, e); }
+buffer::value_accessor::operator signed long long int() const { return get<signed long long int>(b, e); }
+buffer::value_accessor::operator signed long int() const { return get<signed long int>(b, e); }
+buffer::value_accessor::operator signed int() const { return get<signed int>(b, e); } // NOLINT(*-narrowing-conversions)
+buffer::value_accessor::operator signed short int() const { return get<signed short int>(b, e); } // NOLINT(*-narrowing-conversions)
+buffer::value_accessor::operator signed char() const { return get<signed char>(b, e); } // NOLINT(*-narrowing-conversions)
 buffer::value_accessor::operator bool() const { return get<bool>(b, e); }
-buffer::value_accessor::operator string_view() const {
-  return get<string_view>(b, e);
-}
-buffer::value_accessor::operator buffer::range() const {
-  return get<buffer::range>(b, e);
-}
+buffer::value_accessor::operator string_view() const { return get<string_view>(b, e); }
+buffer::value_accessor::operator buffer::range() const { return get<buffer::range>(b, e); }
+// clang-format on
 
 } // namespace cbor

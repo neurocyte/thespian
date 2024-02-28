@@ -290,12 +290,12 @@ pub fn decodeArrayHeader(iter: *[]const u8) CborError!usize {
         return 0;
     if (t.major != 4)
         return error.CborInvalidType;
-    return decodePInt(iter, t.minor);
+    return @intCast(try decodePInt(iter, t.minor));
 }
 
 fn decodeString(iter_: *[]const u8, minor: u5) CborError![]const u8 {
     var iter = iter_.*;
-    const len = try decodePInt(&iter, minor);
+    const len: usize = @intCast(try decodePInt(&iter, minor));
     if (iter.len < len)
         return error.CborTooShort;
     const s = iter[0..len];
@@ -392,7 +392,7 @@ fn matchBoolValue(iter: *[]const u8, val: bool) CborError!bool {
 }
 
 fn skipString(iter: *[]const u8, minor: u5) CborError!void {
-    const len = try decodePInt(iter, minor);
+    const len: usize = @intCast(try decodePInt(iter, minor));
     if (iter.len < len)
         return error.CborTooShort;
     iter.* = iter.*[len..];

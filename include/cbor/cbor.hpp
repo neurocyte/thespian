@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -55,48 +54,27 @@ private:
   static auto decode_array_header(iter &, const iter &) -> size_t;
   static auto decode_map_header(iter &, const iter &) -> size_t;
 
-  [[nodiscard]] static auto match_value(iter &, const iter &, const extractor &)
-      -> bool;
+  // clang-format off
+  [[nodiscard]] static auto match_value(iter &, const iter &, const extractor &) -> bool;
   [[nodiscard]] static auto match_value(iter &, const iter &, type) -> bool;
-  [[nodiscard]] static auto match_value(iter &, const iter &, int64_t) -> bool;
+  [[nodiscard]] static auto match_value(iter &, const iter &, signed long long int) -> bool;
+  [[nodiscard]] static auto match_value(iter &, const iter &, unsigned long long int) -> bool;
   [[nodiscard]] static auto match_value(iter &, const iter &, bool) -> bool;
-  [[nodiscard]] static auto match_value(iter &, const iter &,
-                                        const std::string &) -> bool;
-  [[nodiscard]] static auto match_value(iter &, const iter &,
-                                        const std::string_view) -> bool;
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, const char *s)
-      -> bool {
+  [[nodiscard]] static auto match_value(iter &, const iter &, const std::string &) -> bool;
+  [[nodiscard]] static auto match_value(iter &, const iter &, const std::string_view) -> bool;
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, const char *s) -> bool {
     return match_value(b, e, std::string(s));
   }
 
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, uint64_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, int32_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, uint32_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, int16_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, uint16_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, int8_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
-  [[nodiscard]] static auto match_value(iter &b, const iter &e, uint8_t v)
-      -> bool {
-    return match_value(b, e, static_cast<int64_t>(v));
-  }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, unsigned long int v) -> bool { return match_value(b, e, static_cast<unsigned long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, unsigned int v) -> bool { return match_value(b, e, static_cast<unsigned long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, unsigned short int v) -> bool { return match_value(b, e, static_cast<unsigned long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, unsigned char v) -> bool { return match_value(b, e, static_cast<unsigned long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, signed long int v) -> bool { return match_value(b, e, static_cast<signed long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, signed int v) -> bool { return match_value(b, e, static_cast<signed long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, signed short int v) -> bool { return match_value(b, e, static_cast<signed long long int>(v)); }
+  [[nodiscard]] static auto match_value(iter &b, const iter &e, signed char v) -> bool { return match_value(b, e, static_cast<signed long long int>(v)); }
+  // clang-format on
 
   template <typename T>
   [[nodiscard]] static auto match_next(size_t n, iter &b, const iter &e, T &&p)
@@ -186,7 +164,7 @@ public:
   auto push_string(const std::string &) -> buffer &;
   auto push_string(const std::string_view &s) -> buffer &;
 
-  auto push_int(int64_t value) -> buffer & {
+  auto push_int(signed long long int value) -> buffer & {
     if (value < 0) {
       push_typed_val(1, -(value + 1));
     } else {
@@ -194,28 +172,29 @@ public:
     }
     return *this;
   }
-  auto push(const long long &i) -> buffer & { return push_int(i); }
-  auto push(const int64_t &i) -> buffer & { return push_int(i); }
-  auto push(const int32_t &i) -> buffer & { return push_int(i); }
-  auto push(const int16_t &i) -> buffer & { return push_int(i); }
-  auto push(const int8_t &i) -> buffer & { return push_int(i); }
+
+  auto push_uint(unsigned long long int value) -> buffer & {
+    push_typed_val(0, value);
+    return *this;
+  }
+
+  // clang-format off
+  auto push(const unsigned long long int &i) -> buffer & { return push_uint(i); }
+  auto push(const unsigned long int &i) -> buffer & { return push_uint(i); }
+  auto push(const unsigned int &i) -> buffer & { return push_uint(i); }
+  auto push(const unsigned short int &i) -> buffer & { return push_uint(i); }
+  auto push(const unsigned char &i) -> buffer & { return push_uint(i); }
+  auto push(const signed long long int &i) -> buffer & { return push_int(i); }
+  auto push(const signed long int &i) -> buffer & { return push_int(i); }
+  auto push(const signed int &i) -> buffer & { return push_int(i); }
+  auto push(const signed short int &i) -> buffer & { return push_int(i); }
+  auto push(const signed char &i) -> buffer & { return push_int(i); }
   auto push(const bool &v) -> buffer & { return push_bool(v); }
   auto push(const std::string &s) -> buffer & { return push_string(s); }
   auto push(const std::string_view &s) -> buffer & { return push_string(s); }
   auto push(char *s) -> buffer & { return push_string(std::string_view(s)); }
-  auto push(const char *s) -> buffer & {
-    return push_string(std::string_view(s));
-  }
-
-  auto push_uint(uint64_t value) -> buffer & {
-    push_typed_val(0, value);
-    return *this;
-  }
-  auto push(const unsigned long long &i) -> buffer & { return push_uint(i); }
-  auto push(const uint64_t &i) -> buffer & { return push_uint(i); }
-  auto push(const uint32_t &i) -> buffer & { return push_uint(i); }
-  auto push(const uint16_t &i) -> buffer & { return push_uint(i); }
-  auto push(const uint8_t &i) -> buffer & { return push_uint(i); }
+  auto push(const char *s) -> buffer & { return push_string(std::string_view(s)); }
+  // clang-format on
 
   template <typename T> auto push(const T &a) -> buffer & {
     a.to_cbor(*this);
@@ -279,18 +258,20 @@ public:
 
     [[nodiscard]] auto type_() const -> type;
 
-    operator type() const;             // NOLINT
-    operator int64_t() const;          // NOLINT
-    operator uint64_t() const;         // NOLINT
-    operator int32_t() const;          // NOLINT
-    operator uint32_t() const;         // NOLINT
-    operator int16_t() const;          // NOLINT
-    operator uint16_t() const;         // NOLINT
-    operator int8_t() const;           // NOLINT
-    operator uint8_t() const;          // NOLINT
-    operator bool() const;             // NOLINT
-    operator std::string_view() const; // NOLINT
-    operator buffer::range() const;    // NOLINT
+    operator type() const;                   // NOLINT
+    operator unsigned long long int() const; // NOLINT
+    operator unsigned long int() const;      // NOLINT
+    operator unsigned int() const;           // NOLINT
+    operator unsigned short int() const;     // NOLINT
+    operator unsigned char() const;          // NOLINT
+    operator signed long long int() const;   // NOLINT
+    operator signed long int() const;        // NOLINT
+    operator signed int() const;             // NOLINT
+    operator signed short int() const;       // NOLINT
+    operator signed char() const;            // NOLINT
+    operator bool() const;                   // NOLINT
+    operator std::string_view() const;       // NOLINT
+    operator buffer::range() const;          // NOLINT
 
     struct unvisitable_type {
       cbor::type t;
@@ -423,15 +404,19 @@ template <typename... Ts> auto map(Ts &&...parms) -> buffer {
 }
 
 auto extract(type &) -> buffer::extractor;
-auto extract(int64_t &) -> buffer::extractor;
-auto extract(unsigned long long &) -> buffer::extractor;
-auto extract(uint64_t &) -> buffer::extractor;
-auto extract(int32_t &) -> buffer::extractor;
-auto extract(uint32_t &) -> buffer::extractor;
-auto extract(int16_t &) -> buffer::extractor;
-auto extract(uint16_t &) -> buffer::extractor;
-auto extract(int8_t &) -> buffer::extractor;
-auto extract(uint8_t &) -> buffer::extractor;
+
+auto extract(signed long long int &) -> buffer::extractor;
+auto extract(signed long int &) -> buffer::extractor;
+auto extract(signed int &) -> buffer::extractor;
+auto extract(signed short int &) -> buffer::extractor;
+auto extract(signed char &) -> buffer::extractor;
+
+auto extract(unsigned long long int &) -> buffer::extractor;
+auto extract(unsigned long int &) -> buffer::extractor;
+auto extract(unsigned int &) -> buffer::extractor;
+auto extract(unsigned short int &) -> buffer::extractor;
+auto extract(unsigned char &) -> buffer::extractor;
+
 auto extract(bool &) -> buffer::extractor;
 auto extract(std::string &) -> buffer::extractor;
 auto extract(std::string_view &) -> buffer::extractor;
