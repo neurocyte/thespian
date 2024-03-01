@@ -307,7 +307,7 @@ pub const env = struct {
         return ret.base[0..ret.len];
     }
     pub fn str_set(self: *const Self, key: []const u8, value: []const u8) void {
-        c.thespian_env_str(self.env, .{ .base = key.ptr, .len = key.len }, .{ .base = value.ptr, .len = value.len });
+        c.thespian_env_str_set(self.env, .{ .base = key.ptr, .len = key.len }, .{ .base = value.ptr, .len = value.len });
     }
 
     pub fn proc(self: *const Self, key: []const u8) pid_ref {
