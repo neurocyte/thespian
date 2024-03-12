@@ -152,7 +152,16 @@ const Proc = struct {
         } else if (try m.match(.{ "fd", "stdin", "write_ready" })) {
             if (self.stdin_buffer.items.len > 0) {
                 if (self.child.stdin) |stdin| {
-                    const written = stdin.write(self.stdin_buffer.items) catch |e| return tp.exit_error(e);
+                    const written = stdin.write(self.stdin_buffer.items) catch |e| switch (e) {
+                        error.WouldBlock => {
+                            if (self.fd_stdin) |fd_stdin| {
+                                fd_stdin.wait_write() catch |e_| return tp.exit_error(e_);
+                                self.write_pending = true;
+                                return;
+                            } else return tp.exit_error(error.WouldBlock);
+                        },
+                        else => return tp.exit_error(e),
+                    };
                     self.write_pending = false;
                     defer {
                         if (self.stdin_close_pending and !self.write_pending)
