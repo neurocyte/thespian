@@ -606,7 +606,12 @@ fn matchArray(iter_: *[]const u8, arr: anytype, info: anytype) CborError!bool {
     inline for (info.fields) |f| {
         const value = @field(arr, f.name);
         if (isMore(value))
-            return matchArrayMore(&iter, n);
+            if (try matchArrayMore(&iter, n)) {
+                iter_.* = iter;
+                return true;
+            } else {
+                return false;
+            };
         if (n == 0) return false;
         const matched = try matchValue(&iter, @field(arr, f.name));
         if (!matched) return false;
