@@ -810,12 +810,30 @@ pub fn toJson(cbor_buf: []const u8, json_buf: []u8) CborJsonError![]const u8 {
     return fbs.getWritten();
 }
 
+pub fn toJsonAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonError![]const u8 {
+    var buf = std.ArrayList(u8).init(a);
+    defer buf.deinit();
+    var s = json.writeStream(buf.writer(), .{});
+    var iter: []const u8 = cbor_buf;
+    try JsonStream(@TypeOf(buf)).jsonWriteValue(&s, &iter);
+    return buf.toOwnedSlice();
+}
+
 pub fn toJsonPretty(cbor_buf: []const u8, json_buf: []u8) CborJsonError![]const u8 {
     var fbs = fixedBufferStream(json_buf);
     var s = json.writeStream(fbs.writer(), .{ .whitespace = .indent_1 });
     var iter: []const u8 = cbor_buf;
     try JsonStream(@TypeOf(fbs)).jsonWriteValue(&s, &iter);
     return fbs.getWritten();
+}
+
+pub fn toJsonPrettyAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonError![]const u8 {
+    var buf = std.ArrayList(u8).init(a);
+    defer buf.deinit();
+    var s = json.writeStream(buf.writer(), .{ .whitespace = .indent_1 });
+    var iter: []const u8 = cbor_buf;
+    try JsonStream(@TypeOf(buf)).jsonWriteValue(&s, &iter);
+    return buf.toOwnedSlice();
 }
 
 fn writeJsonValue(writer: anytype, value: json.Value) !void {
@@ -916,4 +934,16 @@ pub fn fromJson(json_buf: []const u8, cbor_buf: []u8) ![]const u8 {
 
     _ = try jsonScanUntil(writer, &scanner, .end_of_document);
     return stream.getWritten();
+}
+
+pub fn fromJsonAlloc(a: std.mem.Allocator, json_buf: []const u8) ![]const u8 {
+    var stream = std.ArrayList(u8).init(a);
+    defer stream.deinit();
+    const writer = stream.writer();
+
+    var scanner = json.Scanner.initCompleteInput(a, json_buf);
+    defer scanner.deinit();
+
+    _ = try jsonScanUntil(writer, &scanner, .end_of_document);
+    return stream.toOwnedSlice();
 }
