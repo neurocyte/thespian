@@ -70,8 +70,8 @@ fn Pid(comptime own: Ownership) type {
             return self.send_raw(message.fmt(m));
         }
 
-        pub fn call(self: Self, request: anytype) !message {
-            return CallContext.call(self.ref(), message.fmt(request));
+        pub fn call(self: Self, a: std.mem.Allocator, request: anytype) error{ OutOfMemory, ThespianSpawnFailed }!message {
+            return CallContext.call(a, self.ref(), message.fmt(request));
         }
 
         pub fn link(self: Self) result {
@@ -437,7 +437,7 @@ pub fn spawn_link(
     data: anytype,
     f: Behaviour(@TypeOf(data)).FunT,
     name: [:0]const u8,
-) !pid {
+) error{ OutOfMemory, ThespianSpawnFailed }!pid {
     return spawn_link_env(a, data, f, name, env.get());
 }
 
@@ -447,7 +447,7 @@ pub fn spawn_link_env(
     f: Behaviour(@TypeOf(data)).FunT,
     name: [:0]const u8,
     env_: ?env,
-) !pid {
+) error{ OutOfMemory, ThespianSpawnFailed }!pid {
     const Tclosure = Behaviour(@TypeOf(data));
     var handle_: c.thespian_handle = null;
     try neg_to_error(c.thespian_spawn_link(
@@ -460,11 +460,11 @@ pub fn spawn_link_env(
     return wrap_pid(handle_);
 }
 
-pub fn neg_to_error(errcode: c_int, errortype: anyerror) !void {
+pub fn neg_to_error(errcode: c_int, errortype: anytype) @TypeOf(errortype)!void {
     if (errcode < 0) return errortype;
 }
 
-pub fn nonzero_to_error(errcode: c_int, errortype: anyerror) !void {
+pub fn nonzero_to_error(errcode: c_int, errortype: anytype) @TypeOf(errortype)!void {
     if (errcode != 0) return errortype;
 }
 
@@ -485,7 +485,7 @@ fn Behaviour(comptime T: type) type {
         const FunT: type = *const fn (T) result;
         const Self = @This();
 
-        pub fn create(a: std.mem.Allocator, f: FunT, data: T) !*Self {
+        pub fn create(a: std.mem.Allocator, f: FunT, data: T) error{OutOfMemory}!*Self {
             const self: *Self = try a.create(Self);
             self.* = .{ .a = a, .f = f, .data = data };
             return self;
