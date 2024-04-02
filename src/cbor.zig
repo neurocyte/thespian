@@ -714,6 +714,15 @@ fn Extractor(comptime T: type) type {
                     },
                     else => extractError(T),
                 },
+                .Optional => |opt_info| {
+                    var nested: opt_info.child = undefined;
+                    const extractor = Extractor(opt_info.child).init(&nested);
+                    if (try extractor.extract(iter)) {
+                        self.dest.* = nested;
+                        return true;
+                    }
+                    return false;
+                },
                 else => extractError(T),
             }
         }
