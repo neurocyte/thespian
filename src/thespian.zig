@@ -665,15 +665,13 @@ const CallContext = struct {
     request: message,
     response: ?message,
     a: std.mem.Allocator,
+    mut: std.Thread.Mutex = std.Thread.Mutex{},
+    cond: std.Thread.Condition = std.Thread.Condition{},
 
     const Self = @This();
     const ReceiverT = Receiver(*Self);
 
-    pub fn call(to: pid_ref, request: message) !message {
-        var heap: [32 + 1024]u8 = undefined;
-        var fba = std.heap.FixedBufferAllocator.init(&heap);
-        const a = fba.allocator();
-
+    pub fn call(a: std.mem.Allocator, to: pid_ref, request: message) error{ OutOfMemory, ThespianSpawnFailed }!message {
         var self: Self = undefined;
         const rec = ReceiverT.init(receive_, &self);
 
@@ -685,20 +683,19 @@ const CallContext = struct {
             .a = a,
         };
 
+        self.mut.lock();
+        errdefer self.mut.unlock();
+
         const proc = try spawn_link(a, &self, start, @typeName(Self));
-        while (!proc.expired()) {
-            std.time.sleep(50);
-        }
-        if (self.response) |resp| {
-            const m = message_buffer[0..resp.buf.len];
-            @memcpy(m, resp.buf);
-            return .{ .buf = m };
-        } else {
-            return .{};
-        }
+        defer proc.deinit();
+
+        self.cond.wait(&self.mut);
+
+        return self.response orelse .{};
     }
 
     fn start(self: *Self) result {
+        errdefer self.cond.signal();
         _ = set_trap(true);
         try self.to.link();
         try self.to.send_raw(self.request);
@@ -706,6 +703,7 @@ const CallContext = struct {
     }
 
     fn receive_(self: *Self, from: pid_ref, m: message) result {
+        defer self.cond.signal();
         _ = from;
         self.response = m.clone(self.a) catch |e| return exit_error(e);
         try exit_normal();
