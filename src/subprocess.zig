@@ -215,7 +215,10 @@ const Proc = struct {
 
     fn dispatch_stdout(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
-        const bytes = self.child.stdout.?.read(&buffer) catch |e| return tp.exit_error(e);
+        const bytes = self.child.stdout.?.read(&buffer) catch |e| switch (e) {
+            error.WouldBlock => return,
+            else => return tp.exit_error(e),
+        };
         if (bytes == 0)
             return self.handle_terminate();
         try self.parent.send(.{ self.tag, "stdout", buffer[0..bytes] });
@@ -223,7 +226,10 @@ const Proc = struct {
 
     fn dispatch_stderr(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
-        const bytes = self.child.stderr.?.read(&buffer) catch |e| return tp.exit_error(e);
+        const bytes = self.child.stderr.?.read(&buffer) catch |e| switch (e) {
+            error.WouldBlock => return,
+            else => return tp.exit_error(e),
+        };
         if (bytes == 0)
             return;
         try self.parent.send(.{ self.tag, "stderr", buffer[0..bytes] });
