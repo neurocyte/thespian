@@ -138,7 +138,8 @@ pub const message = struct {
     }
 
     pub fn from(span: anytype) Self {
-        return .{ .buf = span.base[0..span.len] };
+        const buf = if (span.len > 0) span.base[0..span.len] else &[_]u8{};
+        return .{ .buf = buf };
     }
 
     pub fn to(self: *const Self, comptime T: type) T {
