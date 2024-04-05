@@ -74,6 +74,13 @@ fn Pid(comptime own: Ownership) type {
             return CallContext.call(a, self.ref(), message.fmt(request));
         }
 
+        pub fn forward_error(self: Self, e: anyerror) result {
+            return self.send_raw(switch (e) {
+                error.Exit => .{ .buf = error_message() },
+                else => exit_message(e),
+            });
+        }
+
         pub fn link(self: Self) result {
             return c.thespian_link(self.h);
         }
