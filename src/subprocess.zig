@@ -48,7 +48,7 @@ pub fn send(self: *const Self, bytes_: []const u8) tp.result {
 pub fn close(self: *Self) tp.result {
     defer self.deinit();
     if (self.stdin_behavior == .Pipe)
-        if (self.pid) |pid| try pid.send(.{"stdin_close"});
+        if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"stdin_close"});
 }
 
 pub fn writer(self: *Self) Writer {
