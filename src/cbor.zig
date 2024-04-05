@@ -845,6 +845,15 @@ pub fn toJsonPrettyAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonErr
     return buf.toOwnedSlice();
 }
 
+pub fn toJsonOptsAlloc(a: std.mem.Allocator, cbor_buf: []const u8, opts: std.json.StringifyOptions) CborJsonError![]const u8 {
+    var buf = std.ArrayList(u8).init(a);
+    defer buf.deinit();
+    var s = json.writeStream(buf.writer(), opts);
+    var iter: []const u8 = cbor_buf;
+    try JsonStream(@TypeOf(buf)).jsonWriteValue(&s, &iter);
+    return buf.toOwnedSlice();
+}
+
 fn writeJsonValue(writer: anytype, value: json.Value) !void {
     try switch (value) {
         .array => |_| unreachable,
