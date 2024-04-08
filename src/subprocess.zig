@@ -210,12 +210,14 @@ const Proc = struct {
         if (self.child.stdin) |*fd| {
             fd.close();
             self.child.stdin = null;
+            tp.env.get().trace(tp.message.fmt(.{ self.tag, "stdin", "closed" }).to(tp.message.c_buffer_type));
         }
     }
 
     fn dispatch_stdout(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
-        const bytes = self.child.stdout.?.read(&buffer) catch |e| switch (e) {
+        const stdout = self.child.stdout orelse return tp.exit("cannot read closed stdout");
+        const bytes = stdout.read(&buffer) catch |e| switch (e) {
             error.WouldBlock => return,
             else => return tp.exit_error(e),
         };
@@ -226,7 +228,8 @@ const Proc = struct {
 
     fn dispatch_stderr(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
-        const bytes = self.child.stderr.?.read(&buffer) catch |e| switch (e) {
+        const stderr = self.child.stderr orelse return tp.exit("cannot read closed stderr");
+        const bytes = stderr.read(&buffer) catch |e| switch (e) {
             error.WouldBlock => return,
             else => return tp.exit_error(e),
         };
