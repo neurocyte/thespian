@@ -32,6 +32,5 @@ auto on_trace(trace_handler) -> trace_handler;
 auto trace_to_json_file(const std::string &file_name) -> void;
 auto trace_to_cbor_file(const std::string &file_name) -> void;
 auto trace_to_mermaid_file(const std::string &file_name) -> void;
-auto trace_to_trace(int default_channel) -> void;
 
 } // namespace thespian

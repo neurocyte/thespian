@@ -19,7 +19,4 @@ void thespian_trace_to_mermaid_file(const char *file_name) {
   thespian::trace_to_mermaid_file(file_name);
 }
 
-void thespian_trace_to_trace(thespian_trace_channel default_channel) {
-  thespian::trace_to_trace(default_channel);
-}
 }

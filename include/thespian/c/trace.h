@@ -32,7 +32,6 @@ void thespian_on_trace(thespian_trace_handler);
 void thespian_trace_to_json_file(const char *file_name);
 void thespian_trace_to_cbor_file(const char *file_name);
 void thespian_trace_to_mermaid_file(const char *file_name);
-void thespian_trace_to_trace(thespian_trace_channel default_channel);
 
 #ifdef __cplusplus
 }
