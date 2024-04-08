@@ -152,9 +152,7 @@ fn writeNull(writer: anytype) @TypeOf(writer).Error!void {
 }
 
 fn writeErrorset(writer: anytype, err: anyerror) @TypeOf(writer).Error!void {
-    var buf: [256]u8 = undefined;
-    const errmsg = try bufPrint(&buf, "error.{s}", .{@errorName(err)});
-    return writeString(writer, errmsg);
+    try writer.print("error.{s}", .{@errorName(err)});
 }
 
 pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
