@@ -12,7 +12,8 @@ pub const subprocess = @import("subprocess.zig");
 
 pub const install_debugger = c.install_debugger;
 pub const max_message_size = 8 * 4096;
-threadlocal var message_buffer: [max_message_size]u8 = undefined;
+const message_buf_allocator = std.heap.c_allocator;
+threadlocal var message_buffer: std.ArrayList(u8) = std.ArrayList(u8).init(message_buf_allocator);
 threadlocal var error_message_buffer: [256]u8 = undefined;
 threadlocal var error_buffer_tl: c.thespian_error = .{
     .base = null,
@@ -116,25 +117,42 @@ pub const message = struct {
     pub const c_buffer_type = c.cbor_buffer;
 
     pub fn fmt(value: anytype) Self {
-        return fmtbuf(&message_buffer, value) catch unreachable;
+        message_buffer.clearRetainingCapacity();
+        const f = comptime switch (@typeInfo(@TypeOf(value))) {
+            .Struct => |info| if (info.is_tuple)
+                fmt_internal
+            else
+                @compileError("thespian.message template should be a tuple: " ++ @typeName(@TypeOf(value))),
+            else => fmt_internal_scalar,
+        };
+        f(message_buffer.writer(), value) catch |e| std.debug.panic("thespian.message.fmt: {any}", .{e});
+        return .{ .buf = message_buffer.items };
+    }
+
+    fn fmt_internal_scalar(writer: std.ArrayList(u8).Writer, value: anytype) !void {
+        return fmt_internal(writer, .{value});
+    }
+
+    fn fmt_internal(writer: std.ArrayList(u8).Writer, value: anytype) !void {
+        try cbor.writeValue(writer, value);
     }
 
     pub fn fmtbuf(buf: []u8, value: anytype) !Self {
         const f = comptime switch (@typeInfo(@TypeOf(value))) {
             .Struct => |info| if (info.is_tuple)
-                fmtbufInternal
+                fmtbuf_internal
             else
                 @compileError("thespian.message template should be a tuple: " ++ @typeName(@TypeOf(value))),
-            else => fmtbufInternalScalar,
+            else => fmtbuf_internal_scalar,
         };
         return f(buf, value);
     }
 
-    fn fmtbufInternalScalar(buf: []u8, value: anytype) !Self {
-        return fmtbufInternal(buf, .{value});
+    fn fmtbuf_internal_scalar(buf: []u8, value: anytype) !Self {
+        return fmtbuf_internal(buf, .{value});
     }
 
-    fn fmtbufInternal(buf: []u8, value: anytype) !Self {
+    fn fmtbuf_internal(buf: []u8, value: anytype) !Self {
         var stream = std.io.fixedBufferStream(buf);
         try cbor.writeValue(stream.writer(), value);
         return .{ .buf = stream.getWritten() };
