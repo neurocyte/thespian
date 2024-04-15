@@ -51,6 +51,11 @@ pub fn close(self: *Self) tp.result {
         if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"stdin_close"});
 }
 
+pub fn term(self: *Self) tp.result {
+    defer self.deinit();
+    if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"term"});
+}
+
 pub fn writer(self: *Self) Writer {
     return .{ .context = self };
 }
@@ -201,6 +206,9 @@ const Proc = struct {
                 fd.close();
                 self.child.stderr = null;
             }
+        } else if (try m.match(.{"term"})) {
+            const term_ = self.child.kill() catch |e| return tp.exit_error(e);
+            return self.handle_term(term_);
         } else if (try m.match(.{ "fd", tp.any, "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
             return tp.exit(err_msg);
         }
@@ -239,8 +247,11 @@ const Proc = struct {
     }
 
     fn handle_terminate(self: *Proc) tp.result {
-        const term = self.child.wait() catch |e| return tp.exit_error(e);
-        (switch (term) {
+        return self.handle_term(self.child.wait() catch |e| return tp.exit_error(e));
+    }
+
+    fn handle_term(self: *Proc, term_: std.ChildProcess.Term) tp.result {
+        (switch (term_) {
             .Exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
             .Signal => |val| self.parent.send(.{ self.tag, "term", "signal", val }),
             .Stopped => |val| self.parent.send(.{ self.tag, "term", "stop", val }),
