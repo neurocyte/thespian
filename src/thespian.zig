@@ -71,8 +71,8 @@ fn Pid(comptime own: Ownership) type {
             return self.send_raw(message.fmt(m));
         }
 
-        pub fn call(self: Self, a: std.mem.Allocator, request: anytype) error{ OutOfMemory, ThespianSpawnFailed }!message {
-            return CallContext.call(a, self.ref(), message.fmt(request));
+        pub fn call(self: Self, a: std.mem.Allocator, timeout_ns: u64, request: anytype) error{ OutOfMemory, ThespianSpawnFailed, Timeout }!message {
+            return CallContext.call(a, self.ref(), timeout_ns, message.fmt(request));
         }
 
         pub fn forward_error(self: Self, e: anyerror) result {
@@ -697,7 +697,7 @@ const CallContext = struct {
     const Self = @This();
     const ReceiverT = Receiver(*Self);
 
-    pub fn call(a: std.mem.Allocator, to: pid_ref, request: message) error{ OutOfMemory, ThespianSpawnFailed }!message {
+    pub fn call(a: std.mem.Allocator, to: pid_ref, timeout_ns: u64, request: message) error{ OutOfMemory, ThespianSpawnFailed, Timeout }!message {
         var self: Self = undefined;
         const rec = ReceiverT.init(receive_, &self);
 
@@ -715,7 +715,7 @@ const CallContext = struct {
         const proc = try spawn_link(a, &self, start, @typeName(Self));
         defer proc.deinit();
 
-        self.cond.wait(&self.mut);
+        try self.cond.timedWait(&self.mut, timeout_ns);
 
         return self.response orelse .{};
     }
