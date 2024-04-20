@@ -152,7 +152,12 @@ fn writeNull(writer: anytype) @TypeOf(writer).Error!void {
 }
 
 fn writeErrorset(writer: anytype, err: anyerror) @TypeOf(writer).Error!void {
-    try writer.print("error.{s}", .{@errorName(err)});
+    var buf: [local_heap_size]u8 = undefined;
+    var stream = fixedBufferStream(&buf);
+    const writer_ = stream.writer();
+    _ = writer_.write("error.") catch @panic("cbor.writeErrorset failed!");
+    _ = writer_.write(@errorName(err)) catch @panic("cbor.writeErrorset failed!");
+    return writeString(writer, stream.getWritten());
 }
 
 pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
