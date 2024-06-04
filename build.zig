@@ -42,8 +42,8 @@ pub fn build(b: *std.Build) void {
         lib.defineCMacro("TRACY_ENABLE", null);
         lib.defineCMacro("TRACY_CALLSTACK", null);
     }
-    lib.addIncludePath(.{ .path = "src" });
-    lib.addIncludePath(.{ .path = "include" });
+    lib.addIncludePath(b.path("src"));
+    lib.addIncludePath(b.path("include"));
     lib.addCSourceFiles(.{ .files = &[_][]const u8{
         "src/backtrace.cpp",
         "src/c/context.cpp",
@@ -69,20 +69,20 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
 
     const cbor_mod = b.addModule("cbor", .{
-        .root_source_file = .{ .path = "src/cbor.zig" },
+        .root_source_file = b.path("src/cbor.zig"),
     });
 
     const thespian_mod = b.addModule("thespian", .{
-        .root_source_file = .{ .path = "src/thespian.zig" },
+        .root_source_file = b.path("src/thespian.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
         },
     });
-    thespian_mod.addIncludePath(.{ .path = "include" });
+    thespian_mod.addIncludePath(b.path("include"));
     thespian_mod.linkLibrary(lib);
 
     const tests = b.addTest(.{
-        .root_source_file = .{ .path = "test/tests.zig" },
+        .root_source_file = b.path("test/tests.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -90,9 +90,9 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("cbor", cbor_mod);
     tests.root_module.addImport("thespian", thespian_mod);
-    tests.addIncludePath(.{ .path = "test" });
-    tests.addIncludePath(.{ .path = "src" });
-    tests.addIncludePath(.{ .path = "include" });
+    tests.addIncludePath(b.path("test"));
+    tests.addIncludePath(b.path("src"));
+    tests.addIncludePath(b.path("include"));
     tests.addCSourceFiles(.{ .files = &[_][]const u8{
         "test/cbor_match.cpp",
         "test/debug.cpp",

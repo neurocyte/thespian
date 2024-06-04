@@ -3,14 +3,14 @@ const cbor = @import("cbor");
 const tp = @import("thespian.zig");
 
 pid: ?tp.pid,
-stdin_behavior: std.ChildProcess.StdIo,
+stdin_behavior: std.process.Child.StdIo,
 
 const Self = @This();
 pub const max_chunk_size = 4096 - 32;
 pub const Writer = std.io.Writer(*Self, error{Exit}, write);
 pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 
-pub fn init(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.ChildProcess.StdIo) !Self {
+pub fn init(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !Self {
     return .{
         .pid = try Proc.create(a, argv, tag, stdin_behavior),
         .stdin_behavior = stdin_behavior,
@@ -69,7 +69,7 @@ const Proc = struct {
     receiver: Receiver,
     args: std.heap.ArenaAllocator,
     parent: tp.pid,
-    child: std.ChildProcess,
+    child: std.process.Child,
     tag: [:0]const u8,
     stdin_buffer: std.ArrayList(u8),
     fd_stdin: ?tp.file_descriptor = null,
@@ -80,7 +80,7 @@ const Proc = struct {
 
     const Receiver = tp.Receiver(*Proc);
 
-    fn create(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.ChildProcess.StdIo) !tp.pid {
+    fn create(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
         const self: *Proc = try a.create(Proc);
 
         var args = std.heap.ArenaAllocator.init(a);
@@ -97,7 +97,7 @@ const Proc = struct {
             i += 1;
         }
 
-        var child = std.ChildProcess.init(argv_, a);
+        var child = std.process.Child.init(argv_, a);
         child.stdin_behavior = stdin_behavior;
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
@@ -250,7 +250,7 @@ const Proc = struct {
         return self.handle_term(self.child.wait() catch |e| return tp.exit_error(e));
     }
 
-    fn handle_term(self: *Proc, term_: std.ChildProcess.Term) tp.result {
+    fn handle_term(self: *Proc, term_: std.process.Child.Term) tp.result {
         (switch (term_) {
             .Exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
             .Signal => |val| self.parent.send(.{ self.tag, "term", "signal", val }),
