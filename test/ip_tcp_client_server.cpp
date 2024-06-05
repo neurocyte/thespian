@@ -7,7 +7,14 @@
 #include <thespian/socket.hpp>
 #include <thespian/tcp.hpp>
 
+#if !defined(_WIN32)
 #include <netinet/in.h>
+#else
+#include <winsock2.h>
+#include <in6addr.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
+#endif
 
 using cbor::buffer;
 using cbor::extract;

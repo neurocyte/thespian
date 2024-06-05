@@ -5,9 +5,14 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <netinet/in.h>
 #include <system_error>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <netinet/in.h>
+#else
+#include <in6addr.h>
+#endif
 
 using port_t = unsigned short;
 

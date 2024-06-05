@@ -3,7 +3,6 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <memory>
 #include <thespian/context.hpp>
 #include <thespian/debug.hpp>
@@ -26,12 +25,24 @@
 #include <map>
 #include <memory>
 #include <mutex>
-#include <netinet/in.h>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+
+#if !defined(_WIN32)
+
+#include <netinet/in.h>
+
+#else
+
+#include <in6addr.h>
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
+
+#endif
 
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
@@ -850,6 +861,7 @@ auto udp::create(string tag) -> udp {
   return {udp_ref(new udp_impl(move(tag)), [](udp_impl *p) { delete p; })};
 }
 
+#if !defined(_WIN32)
 struct file_descriptor_impl {
   file_descriptor_impl(const file_descriptor_impl &) = delete;
   file_descriptor_impl(file_descriptor_impl &&) = delete;
@@ -913,6 +925,7 @@ void file_descriptor::wait_write(file_descriptor_impl *p) { p->wait_write(); }
 void file_descriptor::wait_read(file_descriptor_impl *p) { p->wait_read(); }
 void file_descriptor::cancel(file_descriptor_impl *p) { p->cancel(); }
 void file_descriptor::destroy(file_descriptor_impl *p) { delete p; }
+#endif
 
 struct socket_impl {
   socket_impl(const socket_impl &) = delete;
@@ -1568,6 +1581,7 @@ auto connect(in6_addr ip, port_t port, milliseconds retry_time,
 
 } // namespace tcp
 
+#if !defined(_WIN32)
 namespace unx {
 
 struct connector {
@@ -1651,8 +1665,8 @@ struct acceptor {
   string listen_path;
 
   acceptor(string_view path, mode m, handle o)
-      : a{::thespian::unx::acceptor::create(tag)}, owner{move(o)}, listen_path{
-                                                                       path} {
+      : a{::thespian::unx::acceptor::create(tag)}, owner{move(o)},
+        listen_path{path} {
     a.listen(path, m);
   }
   ~acceptor() = default;
@@ -1703,6 +1717,7 @@ auto connect(string_view path, mode m, milliseconds retry_time,
 }
 
 } // namespace unx
+#endif
 } // namespace endpoint
 
 namespace debug {

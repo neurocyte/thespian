@@ -9,8 +9,14 @@
 #include <thespian/tcp.hpp>
 
 #include <cstring>
-#include <map>
 #include <utility>
+
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <in6addr.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
+#endif
 
 using cbor::any;
 using cbor::buffer;

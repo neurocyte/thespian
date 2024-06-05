@@ -1,4 +1,3 @@
-#include "asio/error_code.hpp"
 #include "asio/posix/descriptor_base.hpp"
 #include "executor.hpp"
 #include <cstddef>
@@ -11,12 +10,18 @@
 #include <asio/ip/tcp.hpp>
 #include <asio/ip/udp.hpp>
 #include <asio/local/stream_protocol.hpp>
-#include <asio/posix/stream_descriptor.hpp>
 #include <asio/signal_set.hpp>
 #include <asio/socket_base.hpp>
 #include <asio/strand.hpp>
 #include <asio/system_timer.hpp>
 #include <asio/thread.hpp>
+
+#if !defined(_WIN32)
+#include <asio/posix/stream_descriptor.hpp>
+#else
+#include <asio/windows/stream_handle.hpp>
+#include <windows.h>
+#endif
 
 #include <csignal>
 #include <vector>
@@ -27,7 +32,6 @@ using asio::io_context;
 using asio::string_view;
 using asio::system_timer;
 using asio::thread;
-using asio::posix::stream_descriptor;
 using std::atomic;
 using std::error_code;
 using std::function;
@@ -46,13 +50,30 @@ using std::chrono::microseconds;
 using std::chrono::system_clock;
 using std::chrono::time_point;
 
+#if !defined(_WIN32)
+using asio::posix::stream_descriptor;
+#else
+using asio::windows::stream_handle;
+#endif
+
 namespace thespian::executor {
 
 const char *MAX_THREAD_STR = getenv("MAX_THREAD"); // NOLINT
 const auto MAX_THREAD =
     static_cast<long>(atoi(MAX_THREAD_STR ? MAX_THREAD_STR : "64")); // NOLINT
 
+#if !defined(_WIN32)
 const auto threads = min(sysconf(_SC_NPROCESSORS_ONLN), MAX_THREAD);
+#else
+namespace {
+static long get_num_processors() {
+  SYSTEM_INFO si;
+  GetSystemInfo(&si);
+  return si.dwNumberOfProcessors;
+}
+} // namespace
+const auto threads = min(get_num_processors(), MAX_THREAD);
+#endif
 
 struct context_impl {
   context_impl() : asio{make_unique<io_context>(threads)} {}
@@ -62,8 +83,10 @@ struct context_impl {
 };
 
 auto context::create() -> context {
+#if !defined(_WIN32)
   if (::signal(SIGPIPE, SIG_IGN) == SIG_ERR) // NOLINT
     abort();
+#endif
   return {context_ref(new context_impl(), [](context_impl *p) { delete p; })};
 }
 
@@ -225,7 +248,7 @@ struct socket_impl {
         socket_{*ctx->asio, ::asio::ip::udp::v6()} {}
   auto bind(const in6_addr &ip, port_t port) -> error_code {
     error_code ec;
-    socket_.bind(to_endpoint_udp(ip, port), ec);
+    ec = socket_.bind(to_endpoint_udp(ip, port), ec);
     return ec;
   }
   [[nodiscard]] auto send_to(string_view data, in6_addr ip, port_t port)
@@ -305,7 +328,7 @@ struct socket_impl {
         socket_{*ctx->asio, asio::ip::tcp::v6(), fd} {}
   auto bind(const in6_addr &ip, port_t port) -> error_code {
     error_code ec;
-    socket_.bind(to_endpoint_tcp(ip, port), ec);
+    ec = socket_.bind(to_endpoint_tcp(ip, port), ec);
     return ec;
   }
   void connect(const in6_addr &ip, port_t port, socket::connect_handler h) {
@@ -382,7 +405,9 @@ void socket::write(const vector<uint8_t> &data, write_handler h) {
 void socket::read(read_handler h) { ref->read(*this, move(h)); }
 
 void socket::close() { ref->close(); }
+#if !defined(_WIN32)
 void socket::close(int fd) { ::close(fd); }
+#endif
 auto socket::release() -> int { return ref->release(); }
 
 auto socket::local_endpoint() const -> const endpoint & {
@@ -395,12 +420,12 @@ struct acceptor_impl {
         acceptor_{*ctx->asio, asio::ip::tcp::v6()}, socket_{*ctx->asio} {}
   auto bind(const in6_addr &ip, port_t port) -> error_code {
     error_code ec;
-    acceptor_.bind(to_endpoint_tcp(ip, port), ec);
+    ec = acceptor_.bind(to_endpoint_tcp(ip, port), ec);
     return ec;
   }
   auto listen() -> error_code {
     error_code ec;
-    acceptor_.listen(asio::socket_base::max_listen_connections, ec);
+    ec = acceptor_.listen(asio::socket_base::max_listen_connections, ec);
     return ec;
   }
   void accept(acceptor::handler h) {
@@ -412,7 +437,9 @@ struct acceptor_impl {
                                 t = move(weak_token)](const error_code &ec) {
           c->pending.fetch_sub(1, memory_order_relaxed);
           if (auto p = t.lock())
-            h(ec ? 0 : s->release(), ec);
+            h(ec ? static_cast<asio::ip::tcp::socket::native_handle_type>(0)
+                 : s->release(),
+              ec);
         }));
   }
   void close() { acceptor_.close(); }
@@ -454,14 +481,14 @@ namespace unx {
 
 struct socket_impl {
   explicit socket_impl(strand &strand)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, socket_{
-                                                                *ctx->asio} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        socket_{*ctx->asio} {}
   explicit socket_impl(strand &strand, int fd)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, socket_{*ctx->asio,
-                                                                    fd} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        socket_{*ctx->asio, fd} {}
   auto bind(string_view path) -> error_code {
     error_code ec;
-    socket_.bind(path, ec);
+    ec = socket_.bind(path, ec);
     return ec;
   }
   void connect(string_view path, socket::connect_handler h) {
@@ -537,12 +564,12 @@ struct acceptor_impl {
         socket_{*ctx->asio} {}
   auto bind(string_view path) -> error_code {
     error_code ec;
-    acceptor_.bind(path, ec);
+    ec = acceptor_.bind(path, ec);
     return ec;
   }
   auto listen() -> error_code {
     error_code ec;
-    acceptor_.listen(asio::socket_base::max_listen_connections, ec);
+    ec = acceptor_.listen(asio::socket_base::max_listen_connections, ec);
     return ec;
   }
   void accept(acceptor::handler h) {
@@ -554,7 +581,10 @@ struct acceptor_impl {
                                 t = move(weak_token)](const error_code &ec) {
           c->pending.fetch_sub(1, memory_order_relaxed);
           if (auto p = t.lock())
-            h(ec ? 0 : s->release(), ec);
+            h(ec ? static_cast<asio::local::stream_protocol::socket::
+                                   native_handle_type>(0)
+                 : s->release(),
+              ec);
         }));
   }
   void close() { acceptor_.close(); }
@@ -579,12 +609,13 @@ void acceptor::close() { ref->close(); }
 
 } // namespace unx
 
+#if !defined(_WIN32)
 namespace file_descriptor {
 
 struct watcher_impl {
   explicit watcher_impl(strand &strand, int fd)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, fd_{*ctx->asio,
-                                                                fd} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        fd_{*ctx->asio, fd} {}
 
   void wait_read(watcher::handler h) {
     if (!read_in_progress_) {
@@ -641,5 +672,6 @@ void watcher::wait_write(watcher::handler h) { ref->wait_write(move(h)); }
 void watcher::cancel() { ref->cancel(); }
 
 } // namespace file_descriptor
+#endif
 
 } // namespace thespian::executor

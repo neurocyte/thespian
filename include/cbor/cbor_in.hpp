@@ -3,7 +3,12 @@
 #include "cbor.hpp"
 
 #include <cstring>
+
+#if !defined(_WIN32)
 #include <netinet/in.h>
+#else
+#include <in6addr.h>
+#endif
 
 namespace cbor {
 

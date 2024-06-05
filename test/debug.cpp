@@ -7,9 +7,15 @@
 #include <thespian/tcp.hpp>
 #include <thespian/trace.hpp>
 
-#include <array>
 #include <cstring>
 #include <memory>
+
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <in6addr.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
+#endif
 
 using cbor::buffer;
 using cbor::extract;

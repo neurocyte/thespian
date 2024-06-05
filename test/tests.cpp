@@ -16,7 +16,6 @@
 #include <mutex>
 #include <string>
 #include <utility>
-#include <vector>
 
 using cbor::buffer;
 using std::cerr;
@@ -81,8 +80,10 @@ struct logger {
 extern "C" auto runtestcase(const char *name) -> int {
   mutex trace_m;
 
+#if !defined(_WIN32)
   if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) // NOLINT
     abort();
+#endif
 
   auto gdb = getenv("JITDEBUG"); // NOLINT
 

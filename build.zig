@@ -3,6 +3,7 @@ const std = @import("std");
 const CrossTarget = std.zig.CrossTarget;
 
 const cppflags = [_][]const u8{
+    "-DASIO_HAS_THREADS",
     "-fcolor-diagnostics",
     "-std=c++20",
     "-Wall",
@@ -65,6 +66,10 @@ pub fn build(b: *std.Build) void {
         lib.linkLibrary(tracy_dep.artifact("tracy"));
     }
     lib.linkLibrary(asio_dep.artifact("asio"));
+    if (lib.rootModuleTarget().os.tag == .windows) {
+        lib.linkSystemLibrary("mswsock");
+        lib.linkSystemLibrary("ws2_32");
+    }
     lib.linkLibCpp();
     b.installArtifact(lib);
 

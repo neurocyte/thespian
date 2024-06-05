@@ -7,7 +7,6 @@
 #include <thespian/unx.hpp>
 
 #include <cstring>
-#include <map>
 #include <sstream>
 #include <unistd.h>
 #include <utility>
@@ -38,6 +37,7 @@ using thespian::unx::mode;
 
 using namespace std::chrono_literals;
 
+#if !defined(_WIN32)
 namespace {
 
 struct controller {
@@ -102,3 +102,12 @@ auto endpoint_unx(context &ctx, bool &result, env_t env_) -> ::result {
       },
       "endpoint_unx", move(env_)));
 }
+
+#else
+
+auto endpoint_unx(context &, bool &result, env_t) -> ::result {
+  result = true;
+  return ok();
+}
+
+#endif

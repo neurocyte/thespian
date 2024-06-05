@@ -100,7 +100,9 @@ struct hub_impl {
 
     string_view desc;
     if (msg("listen", extract(desc))) {
+#if !defined(_WIN32)
       thespian::endpoint::unx::listen(desc);
+#endif
     }
 
     if (msg("shutdown"))

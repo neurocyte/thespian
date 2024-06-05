@@ -47,10 +47,11 @@ get_zig() {
 get_zig
 
 if [ "$1" == "cdb" ] ; then
-    rm -rf zig-cache
+    shift
+    rm -rf .zig-cache
     rm -rf .cache/cdb
 
-    $ZIG build
+    $ZIG build "$@"
 
     (echo \[ ; cat .cache/cdb/* ; echo {}\]) | perl -0777 -pe 's/,\n\{\}//igs' | jq . | grep -v 'no-default-config' > compile_commands.json
     exit 0

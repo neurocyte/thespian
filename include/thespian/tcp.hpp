@@ -1,9 +1,14 @@
 #pragma once
 
 #include <memory>
-#include <netinet/in.h>
 #include <string_view>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <netinet/in.h>
+#else
+#include <in6addr.h>
+#endif
 
 using port_t = unsigned short;
 

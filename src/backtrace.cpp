@@ -1,4 +1,4 @@
-#ifndef __APPLE__
+#if !defined(_WIN32) && !defined(__APPLE__)
 
 #include <csignal>
 #include <cstdio>
