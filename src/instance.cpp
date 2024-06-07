@@ -8,6 +8,7 @@
 #include <thespian/debug.hpp>
 #include <thespian/endpoint.hpp>
 #include <thespian/file_descriptor.hpp>
+#include <thespian/file_stream.hpp>
 #include <thespian/instance.hpp>
 #include <thespian/metronome.hpp>
 #include <thespian/signal.hpp>
@@ -862,6 +863,7 @@ auto udp::create(string tag) -> udp {
 }
 
 #if !defined(_WIN32)
+
 struct file_descriptor_impl {
   file_descriptor_impl(const file_descriptor_impl &) = delete;
   file_descriptor_impl(file_descriptor_impl &&) = delete;
@@ -925,6 +927,75 @@ void file_descriptor::wait_write(file_descriptor_impl *p) { p->wait_write(); }
 void file_descriptor::wait_read(file_descriptor_impl *p) { p->wait_read(); }
 void file_descriptor::cancel(file_descriptor_impl *p) { p->cancel(); }
 void file_descriptor::destroy(file_descriptor_impl *p) { delete p; }
+
+#else
+
+struct file_stream_impl {
+  file_stream_impl(const file_stream_impl &) = delete;
+  file_stream_impl(file_stream_impl &&) = delete;
+  auto operator=(const file_stream_impl &) -> file_stream_impl & = delete;
+  auto operator=(file_stream_impl &&) -> file_stream_impl & = delete;
+
+  file_stream_impl(string_view tag, void *handle)
+      : owner_(private_call()), strand_(owner_.get_strand()),
+        file_stream_(strand_, handle), tag_(tag) {}
+
+  ~file_stream_impl() = default;
+
+  void start_read() {
+    private_call();
+    file_stream_.start_read([this, liffile_stream_elock{owner_.lifetime_}](
+                                error_code ec, string_view data) {
+      if (ec) {
+        auto _ =
+            owner_.send("stream", tag_, "read_error", ec.value(), ec.message());
+      } else {
+        auto _ = owner_.send("stream", tag_, "read_complete", data);
+      }
+    });
+  }
+
+  void start_write(string_view data) {
+    private_call();
+    file_stream_.start_write(data, [this,
+                                    liffile_stream_elock{owner_.lifetime_}](
+                                       error_code ec, size_t bytes_written) {
+      if (ec) {
+        auto _ =
+            owner_.send("stream", tag_, "write_error", ec.value(), ec.message());
+      } else {
+        auto _ = owner_.send("stream", tag_, "write_complete", bytes_written);
+      }
+    });
+  }
+
+  void cancel() {
+    private_call();
+    file_stream_.cancel();
+  }
+
+  instance &owner_;
+  executor::strand strand_;
+  executor::file_stream file_stream_;
+  string tag_;
+};
+
+auto file_stream::create(string_view tag, void *handle) -> file_stream {
+  return {file_stream_ref(new file_stream_impl(tag, handle),
+                          [](file_stream_impl *p) { delete p; })};
+}
+
+void file_stream::start_read() { ref->start_read(); }
+void file_stream::start_write(string_view data) { ref->start_write(data); }
+void file_stream::cancel() { ref->cancel(); }
+
+void file_stream::start_read(file_stream_impl *p) { p->start_read(); }
+void file_stream::start_write(file_stream_impl *p, string_view data) {
+  p->start_write(data);
+}
+void file_stream::cancel(file_stream_impl *p) { p->cancel(); }
+void file_stream::destroy(file_stream_impl *p) { delete p; }
+
 #endif
 
 struct socket_impl {
@@ -1665,8 +1736,8 @@ struct acceptor {
   string listen_path;
 
   acceptor(string_view path, mode m, handle o)
-      : a{::thespian::unx::acceptor::create(tag)}, owner{move(o)},
-        listen_path{path} {
+      : a{::thespian::unx::acceptor::create(tag)}, owner{move(o)}, listen_path{
+                                                                       path} {
     a.listen(path, m);
   }
   ~acceptor() = default;

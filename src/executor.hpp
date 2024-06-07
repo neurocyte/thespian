@@ -191,6 +191,8 @@ struct acceptor {
 
 } // namespace unx
 
+#if !defined(_WIN32)
+
 namespace file_descriptor {
 
 struct watcher_impl;
@@ -208,5 +210,27 @@ struct watcher {
 };
 
 } // namespace file_descriptor
+
+#else
+
+struct file_stream_impl;
+using file_stream_dtor = void (*)(file_stream_impl *);
+using file_stream_ref = std::unique_ptr<file_stream_impl, file_stream_dtor>;
+
+struct file_stream {
+  using handle_type = void *;
+  using read_handler =
+      std::function<void(const std::error_code &, std::string_view data)>;
+  using write_handler =
+      std::function<void(const std::error_code &, size_t bytes_written)>;
+
+  explicit file_stream(strand &, handle_type);
+  void start_read(read_handler);
+  void start_write(std::string_view data, write_handler);
+  void cancel();
+  file_stream_ref ref;
+};
+
+#endif
 
 } // namespace thespian::executor

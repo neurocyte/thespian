@@ -1,6 +1,7 @@
 const std = @import("std");
 const c = @cImport({
     @cInclude("thespian/c/file_descriptor.h");
+    @cInclude("thespian/c/file_stream.h");
     @cInclude("thespian/c/instance.h");
     @cInclude("thespian/c/metronome.h");
     @cInclude("thespian/c/timeout.h");
@@ -8,7 +9,9 @@ const c = @cImport({
     @cInclude("thespian/backtrace.h");
 });
 const cbor = @import("cbor");
-pub const subprocess = @import("subprocess.zig");
+const builtin = @import("builtin");
+
+pub const subprocess = if (builtin.os.tag == .windows) @import("subprocess_windows.zig") else @import("subprocess.zig");
 
 pub const install_debugger = c.install_debugger;
 pub const max_message_size = 8 * 4096;
@@ -616,7 +619,7 @@ pub const metronome = struct {
     const Self = @This();
 
     pub fn init(tick_time_us: u64) !Self {
-        return .{ .handle = c.thespian_metronome_create_us(tick_time_us) orelse return error.ThespianMetronomeInitFailed };
+        return .{ .handle = c.thespian_metronome_create_us(@intCast(tick_time_us)) orelse return error.ThespianMetronomeInitFailed };
     }
 
     pub fn init_ms(tick_time_us: u64) !Self {
@@ -642,11 +645,11 @@ pub const timeout = struct {
     const Self = @This();
 
     pub fn init(tick_time_us: u64, m: message) !Self {
-        return .{ .handle = c.thespian_timeout_create_us(tick_time_us, m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
+        return .{ .handle = c.thespian_timeout_create_us(@intCast(tick_time_us), m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
     }
 
     pub fn init_ms(tick_time_us: u64, m: message) !Self {
-        return .{ .handle = c.thespian_timeout_create_ms(tick_time_us, m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
+        return .{ .handle = c.thespian_timeout_create_ms(@intCast(tick_time_us), m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
     }
 
     pub fn cancel(self: *const Self) !void {
@@ -682,6 +685,32 @@ pub const file_descriptor = struct {
 
     pub fn deinit(self: *const Self) void {
         c.thespian_file_descriptor_destroy(self.handle);
+    }
+};
+
+pub const file_stream = struct {
+    handle: *c.struct_thespian_file_stream_handle,
+
+    const Self = @This();
+
+    pub fn init(tag_: []const u8, handle: *anyopaque) !Self {
+        return .{ .handle = c.thespian_file_stream_create(tag_.ptr, handle) orelse return error.ThespianFileStreamInitFailed };
+    }
+
+    pub fn start_read(self: *const Self) !void {
+        return neg_to_error(c.thespian_file_stream_start_read(self.handle), error.ThespianFileStreamWaitReadFailed);
+    }
+
+    pub fn start_write(self: *const Self, data: []const u8) !void {
+        return neg_to_error(c.thespian_file_stream_start_write(self.handle, data.ptr, data.len), error.ThespianFileStreamWaitWriteFailed);
+    }
+
+    pub fn cancel(self: *const Self) !void {
+        return neg_to_error(c.thespian_file_stream_cancel(self.handle), error.ThespianFileStreamCancelFailed);
+    }
+
+    pub fn deinit(self: *const Self) void {
+        c.thespian_file_stream_destroy(self.handle);
     }
 };
 

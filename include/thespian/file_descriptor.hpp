@@ -1,8 +1,9 @@
 #pragma once
 
+#if !defined(_WIN32)
+
 #include <memory>
 #include <string_view>
-#include <vector>
 
 namespace thespian {
 
@@ -30,3 +31,5 @@ struct file_descriptor {
 };
 
 } // namespace thespian
+
+#endif

@@ -50,6 +50,7 @@ pub fn build(b: *std.Build) void {
         "src/c/context.cpp",
         "src/c/env.cpp",
         "src/c/file_descriptor.cpp",
+        "src/c/file_stream.cpp",
         "src/c/handle.cpp",
         "src/c/instance.cpp",
         "src/c/metronome.cpp",

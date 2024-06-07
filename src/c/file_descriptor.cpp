@@ -1,3 +1,5 @@
+#if !defined(_WIN32)
+
 #include <thespian/c/context.h>
 #include <thespian/c/file_descriptor.h>
 #include <thespian/file_descriptor.hpp>
@@ -74,3 +76,5 @@ void thespian_file_descriptor_destroy(thespian_file_descriptor_handle *p) {
 }
 }
 // NOLINTEND(*-reinterpret-cast, *-use-trailing-*)
+
+#endif
