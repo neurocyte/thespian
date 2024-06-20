@@ -821,7 +821,7 @@ const DelayedSender = struct {
             return;
         }
         defer self.deinit();
-        if (try m_.match(.{ "exit", "timeout_error", 125, any }))
+        if (try m_.match(.{ "exit", "timeout_error", any, any }))
             return exit_normal();
         try self.target.send_raw(m_);
         return exit_normal();
