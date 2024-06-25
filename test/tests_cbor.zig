@@ -10,6 +10,9 @@ const fmt = cbor_mod.fmt;
 const toJson = cbor_mod.toJson;
 const toJsonPretty = cbor_mod.toJsonPretty;
 const fromJson = cbor_mod.fromJson;
+const fromJsonAlloc = cbor_mod.fromJsonAlloc;
+const toJsonAlloc = cbor_mod.toJsonAlloc;
+const toJsonPrettyAlloc = cbor_mod.toJsonPrettyAlloc;
 const decodeType = cbor_mod.decodeType;
 const matchInt = cbor_mod.matchInt;
 const matchIntValue = cbor_mod.matchIntValue;
@@ -432,4 +435,89 @@ test "cbor.fromJson_object" {
     ;
     const cbor = try fromJson(json_buf, &cbor_buf);
     try expect(try match(cbor, map));
+}
+
+test "cbor f32" {
+    var buf: [128]u8 = undefined;
+    try expectEqualDeep(
+        fmt(&buf, .{ "float", @as(f32, 0.96891385316848755) }),
+        &[_]u8{
+            0x82, // 82               # array(2)
+            0x65, //    65            # text(5)
+            0x66, //       666C6F6174 # "float"
+            0x6C,
+            0x6F,
+            0x61,
+            0x74,
+            0xfa, //    FA 3F780ABD   # primitive(1064831677)
+            0x3F,
+            0x78,
+            0x0A,
+            0xBD,
+        },
+    );
+}
+
+test "cbor.fromJson_object f32" {
+    var buf: [128]u8 = undefined;
+    const json_buf: []const u8 =
+        \\["float",0.96891385316848755]
+    ;
+    const cbor = try fromJson(json_buf, &buf);
+    try expect(try match(cbor, array));
+
+    try expectEqualDeep(
+        &[_]u8{
+            0x82, // 82                     # array(2)
+            0x65, //    65                  # text(5)
+            0x66, //       666C6F6174       # "float"
+            0x6C,
+            0x6F,
+            0x61,
+            0x74,
+            0xfb, //    FB 3FEF0157A0000000 # primitive(4606902419681443840)
+            0x3f,
+            0xef,
+            0x01,
+            0x57,
+            0xa0,
+            0x00,
+            0x00,
+            0x00,
+        },
+        cbor,
+    );
+}
+
+test "cbor.extract_match_f32" {
+    var buf: [128]u8 = undefined;
+    const json_buf: []const u8 =
+        \\["float",0.96891385316848755]
+    ;
+    const m = try fromJson(json_buf, &buf);
+
+    try expect(try match(m, .{ "float", @as(f64, 0.96891385316848755) }));
+
+    var f: f64 = undefined;
+    try expect(try match(m, .{ "float", extract(&f) }));
+    try expectEqual(0.96891385316848755, f);
+}
+
+test "cbor.extract_cbor f64" {
+    var buf: [128]u8 = undefined;
+    const json_buf: []const u8 =
+        \\["float",[0.96891385316848755],"check"]
+    ;
+    const m = try fromJson(json_buf, &buf);
+
+    var sub: []const u8 = undefined;
+    try expect(try match(m, .{ "float", extract_cbor(&sub), "check" }));
+
+    const json = try toJsonPrettyAlloc(std.testing.allocator, sub);
+    defer std.testing.allocator.free(json);
+
+    const json2 = try toJsonAlloc(std.testing.allocator, sub);
+    defer std.testing.allocator.free(json2);
+
+    try expectEqualDeep("[9.689138531684875e-1]", json2);
 }
