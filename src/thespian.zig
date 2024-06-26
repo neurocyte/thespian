@@ -79,7 +79,7 @@ fn Pid(comptime own: Ownership) type {
         }
 
         pub fn delay_send(self: Self, a: std.mem.Allocator, delay_us: u64, m: anytype) result {
-            var h = self.delay_send_cancellable(a, delay_us, m) catch |e| return exit_error(e);
+            var h = self.delay_send_cancellable(a, delay_us, m) catch |e| return exit_error(e, @errorReturnTrace());
             h.deinit();
         }
 
@@ -88,10 +88,10 @@ fn Pid(comptime own: Ownership) type {
             return Cancellable.init(try DelayedSender.send(self, a, delay_us, msg));
         }
 
-        pub fn forward_error(self: Self, e: anyerror) result {
+        pub fn forward_error(self: Self, e: anyerror, stack_trace: ?*std.builtin.StackTrace) result {
             return self.send_raw(switch (e) {
                 error.Exit => .{ .buf = error_message() },
-                else => exit_message(e),
+                else => exit_message(e, stack_trace),
             });
         }
 
@@ -199,32 +199,58 @@ pub const message = struct {
         c.cbor_to_json(self.to(c_buffer_type), callback);
     }
     pub fn match(self: Self, m: anytype) error{Exit}!bool {
-        return if (cbor.match(self.buf, m)) |ret| ret else |e| exit_error(e);
+        return if (cbor.match(self.buf, m)) |ret| ret else |e| exit_error(e, @errorReturnTrace());
     }
 };
 
-pub fn exit_message(e: anytype) message {
-    return message.fmtbuf(&error_message_buffer, .{ "exit", e }) catch unreachable;
+pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {
+    if (stack_trace) |stack_trace_| {
+        var debug_info_arena_allocator: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer debug_info_arena_allocator.deinit();
+        const a = debug_info_arena_allocator.allocator();
+        var out = std.ArrayList(u8).init(a);
+        store_stack_trace(a, stack_trace_.*, out.writer());
+        return message.fmtbuf(&error_message_buffer, .{ "exit", e, out.items }) catch unreachable;
+    } else {
+        return message.fmtbuf(&error_message_buffer, .{ "exit", e }) catch unreachable;
+    }
+}
+
+fn store_stack_trace(a: std.mem.Allocator, stack_trace: std.builtin.StackTrace, writer: anytype) void {
+    nosuspend {
+        if (builtin.strip_debug_info) {
+            writer.print("Unable to store stack trace: debug info stripped\n", .{}) catch return;
+            return;
+        }
+        const debug_info = std.debug.getSelfDebugInfo() catch |err| {
+            writer.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
+            return;
+        };
+        std.debug.writeStackTrace(stack_trace, writer, a, debug_info, .no_color) catch |err| {
+            writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
+            return;
+        };
+    }
 }
 
 pub fn exit_normal() result {
-    return set_error_msg(exit_message("normal"));
+    return set_error_msg(exit_message("normal", null));
 }
 
 pub fn exit(e: []const u8) error{Exit} {
-    return set_error_msg(exit_message(e));
+    return set_error_msg(exit_message(e, null));
 }
 
 pub fn exit_fmt(comptime fmt: anytype, args: anytype) result {
     var buf: [1024]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, fmt, args) catch "FMTERROR";
-    return set_error_msg(exit_message(msg));
+    return set_error_msg(exit_message(msg, null));
 }
 
-pub fn exit_error(e: anyerror) error{Exit} {
+pub fn exit_error(e: anyerror, stack_trace: ?*std.builtin.StackTrace) error{Exit} {
     return switch (e) {
         error.Exit => error.Exit,
-        else => set_error_msg(exit_message(e)),
+        else => set_error_msg(exit_message(e, stack_trace)),
     };
 }
 
@@ -232,14 +258,14 @@ pub fn unexpected(b: message) error{Exit} {
     const txt = "UNEXPECTED_MESSAGE: ";
     var buf: [max_message_size]u8 = undefined;
     @memcpy(buf[0..txt.len], txt);
-    const json = b.to_json(buf[txt.len..]) catch |e| return exit_error(e);
+    const json = b.to_json(buf[txt.len..]) catch |e| return exit_error(e, @errorReturnTrace());
     return set_error_msg(message.fmt(.{ "exit", buf[0..(txt.len + json.len)] }));
 }
 
 pub fn error_message() []const u8 {
     if (error_buffer_tl.base) |base|
         return base[0..error_buffer_tl.len];
-    set_error_msg(exit_message("NOERROR")) catch {};
+    set_error_msg(exit_message("NOERROR", null)) catch {};
     return error_message();
 }
 
@@ -775,7 +801,7 @@ const CallContext = struct {
 
     fn receive_(self: *Self, _: pid_ref, m: message) result {
         defer self.done.set();
-        self.response.* = m.clone(self.a) catch |e| return exit_error(e);
+        self.response.* = m.clone(self.a) catch |e| return exit_error(e, @errorReturnTrace());
         return exit_normal();
     }
 };
@@ -804,7 +830,7 @@ const DelayedSender = struct {
     fn start(self: *DelayedSender) result {
         self.receiver = ReceiverT.init(receive_, self);
         const m_ = self.message.?;
-        self.timeout = timeout.init(self.delay_us, m_) catch |e| return exit_error(e);
+        self.timeout = timeout.init(self.delay_us, m_) catch |e| return exit_error(e, @errorReturnTrace());
         self.a.free(m_.buf);
         _ = set_trap(true);
         receive(&self.receiver);
@@ -817,7 +843,7 @@ const DelayedSender = struct {
 
     fn receive_(self: *DelayedSender, _: pid_ref, m_: message) result {
         if (try m_.match(.{"CANCEL"})) {
-            self.timeout.cancel() catch |e| return exit_error(e);
+            self.timeout.cancel() catch |e| return exit_error(e, @errorReturnTrace());
             return;
         }
         defer self.deinit();

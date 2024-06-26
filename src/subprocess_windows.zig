@@ -31,7 +31,7 @@ pub fn write(self: *Self, bytes: []const u8) error{Exit}!usize {
 
 pub fn send(self: *const Self, bytes_: []const u8) tp.result {
     if (self.stdin_behavior != .Pipe) return tp.exit("cannot send to closed stdin");
-    const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed);
+    const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed, null);
     var bytes = bytes_;
     while (bytes.len > 0)
         bytes = loop: {
@@ -134,11 +134,11 @@ const Proc = struct {
         _ = self.args.reset(.free_all);
 
         if (self.child.stdin_behavior == .Pipe)
-            self.stream_stdin = tp.file_stream.init("stdin", self.child.stdin.?.handle) catch |e| return tp.exit_error(e);
-        self.stream_stdout = tp.file_stream.init("stdout", self.child.stdout.?.handle) catch |e| return tp.exit_error(e);
-        self.stream_stderr = tp.file_stream.init("stderr", self.child.stderr.?.handle) catch |e| return tp.exit_error(e);
-        if (self.stream_stdout) |stream| stream.start_read() catch |e| return tp.exit_error(e);
-        if (self.stream_stderr) |stream| stream.start_read() catch |e| return tp.exit_error(e);
+            self.stream_stdin = tp.file_stream.init("stdin", self.child.stdin.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.stream_stdout = tp.file_stream.init("stdout", self.child.stdout.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.stream_stderr = tp.file_stream.init("stderr", self.child.stderr.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
+        if (self.stream_stdout) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        if (self.stream_stderr) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
 
         tp.receive(&self.receiver);
     }
@@ -151,12 +151,12 @@ const Proc = struct {
         var err_msg: []u8 = "";
         if (try m.match(.{ "stream", "stdout", "read_complete", tp.extract(&bytes) })) {
             try self.dispatch_stdout(bytes);
-            if (self.stream_stdout) |stream| stream.start_read() catch |e| return tp.exit_error(e);
+            if (self.stream_stdout) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "stream", "stderr", "read_complete", tp.extract(&bytes) })) {
             try self.dispatch_stderr(bytes);
-            if (self.stream_stderr) |stream| stream.start_read() catch |e| return tp.exit_error(e);
+            if (self.stream_stderr) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
         } else if (try m.match(.{ "stream", "stdin", "write_complete", tp.extract(&bytes_written) })) {
-            const old_buf = self.stdin_buffer.toOwnedSlice() catch |e| return tp.exit_error(e);
+            const old_buf = self.stdin_buffer.toOwnedSlice() catch |e| return tp.exit_error(e, @errorReturnTrace());
             defer self.stdin_buffer.allocator.free(old_buf);
             const bytes_left = old_buf[bytes_written..];
             if (bytes_left.len > 0) {
@@ -185,7 +185,7 @@ const Proc = struct {
                 self.child.stderr = null;
             }
         } else if (try m.match(.{"term"})) {
-            const term_ = self.child.kill() catch |e| return tp.exit_error(e);
+            const term_ = self.child.kill() catch |e| return tp.exit_error(e, @errorReturnTrace());
             return self.handle_term(term_);
         } else if (try m.match(.{ "stream", tp.any, "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
             return tp.exit(err_msg);
@@ -194,8 +194,8 @@ const Proc = struct {
 
     fn start_write(self: *Proc, bytes: []const u8) tp.result {
         if (self.stream_stdin) |stream_stdin| {
-            self.stdin_buffer.appendSlice(bytes) catch |e| return tp.exit_error(e);
-            stream_stdin.start_write(self.stdin_buffer.items) catch |e| return tp.exit_error(e);
+            self.stdin_buffer.appendSlice(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            stream_stdin.start_write(self.stdin_buffer.items) catch |e| return tp.exit_error(e, @errorReturnTrace());
             self.write_pending = true;
         }
     }
@@ -221,7 +221,7 @@ const Proc = struct {
     }
 
     fn handle_terminate(self: *Proc) tp.result {
-        return self.handle_term(self.child.wait() catch |e| return tp.exit_error(e));
+        return self.handle_term(self.child.wait() catch |e| return tp.exit_error(e, @errorReturnTrace()));
     }
 
     fn handle_term(self: *Proc, term_: std.process.Child.Term) tp.result {
