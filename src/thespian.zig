@@ -681,11 +681,11 @@ pub const timeout = struct {
     const Self = @This();
 
     pub fn init(tick_time_us: u64, m: message) !Self {
-        return .{ .handle = c.thespian_timeout_create_us(@intCast(tick_time_us), m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
+        return .{ .handle = c.thespian_timeout_create_us(tick_time_us, m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
     }
 
     pub fn init_ms(tick_time_us: u64, m: message) !Self {
-        return .{ .handle = c.thespian_timeout_create_ms(@intCast(tick_time_us), m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
+        return .{ .handle = c.thespian_timeout_create_ms(tick_time_us, m.to(c.cbor_buffer)) orelse return error.ThespianTimeoutInitFailed };
     }
 
     pub fn cancel(self: *const Self) !void {

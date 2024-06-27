@@ -13,7 +13,7 @@ using thespian::timeout_ref;
 
 extern "C" {
 
-auto thespian_timeout_create_ms(unsigned long ms, cbor_buffer m)
+auto thespian_timeout_create_ms(uint64_t ms, cbor_buffer m)
     -> thespian_timeout_handle * {
   try {
     cbor::buffer buf;
@@ -31,7 +31,7 @@ auto thespian_timeout_create_ms(unsigned long ms, cbor_buffer m)
     return nullptr;
   }
 }
-auto thespian_timeout_create_us(unsigned long us, cbor_buffer m)
+auto thespian_timeout_create_us(uint64_t us, cbor_buffer m)
     -> thespian_timeout_handle * {
   try {
     cbor::buffer buf;
