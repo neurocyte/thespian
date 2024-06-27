@@ -147,6 +147,7 @@ const Proc = struct {
         errdefer self.deinit();
         var bytes: []u8 = "";
         var bytes_written: usize = 0;
+        var stream_name: []u8 = "";
         var err: i64 = 0;
         var err_msg: []u8 = "";
         if (try m.match(.{ "stream", "stdout", "read_complete", tp.extract(&bytes) })) {
@@ -187,8 +188,8 @@ const Proc = struct {
         } else if (try m.match(.{"term"})) {
             const term_ = self.child.kill() catch |e| return tp.exit_error(e, @errorReturnTrace());
             return self.handle_term(term_);
-        } else if (try m.match(.{ "stream", tp.any, "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
-            return tp.exit(err_msg);
+        } else if (try m.match(.{ "stream", tp.extract(&stream_name), "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
+            return tp.exit_fmt("{s} read_error: {s}", .{stream_name, err_msg});
         }
     }
 
