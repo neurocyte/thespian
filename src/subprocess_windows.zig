@@ -188,8 +188,18 @@ const Proc = struct {
         } else if (try m.match(.{"term"})) {
             const term_ = self.child.kill() catch |e| return tp.exit_error(e, @errorReturnTrace());
             return self.handle_term(term_);
+        } else if (try m.match(.{ "stream", "stdin", "read_error", 109, tp.extract(&err_msg) })) {
+            // stdin closed
+            self.child.stdin = null;
+        } else if (try m.match(.{ "stream", "stdout", "read_error", 109, tp.extract(&err_msg) })) {
+            // stdout closed
+            self.child.stdout = null;
+            return self.handle_terminate();
+        } else if (try m.match(.{ "stream", "stderr", "read_error", 109, tp.extract(&err_msg) })) {
+            // stderr closed
+            self.child.stderr = null;
         } else if (try m.match(.{ "stream", tp.extract(&stream_name), "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
-            return tp.exit_fmt("{s} read_error: {s}", .{stream_name, err_msg});
+            return tp.exit_fmt("{s} read_error: {s}", .{ stream_name, err_msg });
         }
     }
 
