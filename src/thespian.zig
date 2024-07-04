@@ -11,6 +11,8 @@ const c = @cImport({
 const cbor = @import("cbor");
 const builtin = @import("builtin");
 
+pub var stack_trace_on_errors: bool = false;
+
 pub const subprocess = if (builtin.os.tag == .windows) @import("subprocess_windows.zig") else @import("subprocess.zig");
 
 pub const install_debugger = c.install_debugger;
@@ -204,6 +206,8 @@ pub const message = struct {
 };
 
 pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {
+    if (!stack_trace_on_errors)
+        return message.fmtbuf(&error_message_buffer, .{ "exit", e }) catch unreachable;
     if (stack_trace) |stack_trace_| {
         var debug_info_arena_allocator: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer debug_info_arena_allocator.deinit();
