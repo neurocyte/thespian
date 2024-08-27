@@ -86,7 +86,7 @@ struct controller {
 auto endpoint_unx(context &ctx, bool &result, env_t env_) -> ::result {
   stringstream ss;
   ss << "/net/vdbonline/thespian/endpoint_t_" << getpid();
-  string path = ss.str();
+  const string path = ss.str();
   return to_result(ctx.spawn_link(
       [path]() {
         link(env().proc("log"));

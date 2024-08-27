@@ -33,12 +33,12 @@ hub::pipe::~pipe() = default;
 
 struct subscribe_queue : public hub::pipe {
   [[nodiscard]] auto push(const handle &from, filter f) {
-    lock_guard<mutex> lock(m_);
+    const lock_guard<mutex> lock(m_);
     q_.push_back(move(f));
     return from.send("subscribe_filtered");
   }
   auto pop() -> filter {
-    lock_guard<mutex> lock(m_);
+    const lock_guard<mutex> lock(m_);
     filter f = move(q_.front());
     q_.pop_front();
     return f;

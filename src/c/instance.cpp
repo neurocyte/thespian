@@ -40,7 +40,7 @@ auto thespian_self() -> thespian_handle {
 auto thespian_spawn_link(thespian_behaviour b, thespian_behaviour_state s,
                          const char *name, thespian_env env,
                          thespian_handle *handle) -> int {
-  thespian::env_t empty_env_{};
+  const thespian::env_t empty_env_{};
   thespian::env_t env_ =
       env ? *reinterpret_cast<thespian::env_t *>(env) : empty_env_; // NOLINT
 

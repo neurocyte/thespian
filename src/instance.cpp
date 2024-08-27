@@ -1292,7 +1292,7 @@ struct acceptor_impl {
 
   void listen(string_view origpath, mode m) {
     private_call();
-    string path = unx_mode_path(m, origpath);
+    const string path = unx_mode_path(m, origpath);
     if (auto ec = acceptor_.bind(path)) {
       auto _ = owner_.send("acceptor", tag_, "error", ec.value(), ec.message());
       return;
@@ -1353,7 +1353,7 @@ struct connector_impl {
   void connect(string_view origpath, mode m) {
     private_call();
     open_ = true;
-    string path = unx_mode_path(m, origpath);
+    const string path = unx_mode_path(m, origpath);
     socket_.connect(path, [this](error_code ec) -> void {
       if (!open_)
         return;
@@ -1574,7 +1574,7 @@ struct connector {
 
   static auto connect(in6_addr ip, port_t port, milliseconds retry_time,
                       size_t retry_count) -> expected<handle, error> {
-    handle owner = self();
+    const handle owner = self();
     return spawn_link(
         [=]() {
           trap(true);
@@ -1628,7 +1628,7 @@ struct acceptor {
   }
 
   static auto start(in6_addr ip, port_t port) -> expected<handle, error> {
-    handle owner = self();
+    const handle owner = self();
     return spawn_link(
         [=]() {
           trap(true);
@@ -1709,7 +1709,7 @@ struct connector {
 
   static auto connect(string_view path, mode m_, milliseconds retry_time,
                       size_t retry_count) -> expected<handle, error> {
-    handle owner = self();
+    const handle owner = self();
     return spawn_link(
         [path{string(path)}, m_, owner, retry_time, retry_count]() {
           trap(true);
@@ -1765,7 +1765,7 @@ struct acceptor {
   }
 
   static auto start(string_view path, mode m_) -> expected<handle, error> {
-    handle owner = self();
+    const handle owner = self();
     return spawn_link(
         [path{string(path)}, m_, owner]() {
           trap(true);
@@ -1804,7 +1804,7 @@ auto isenabled(context &ctx) -> bool { return isenabled(impl(ctx)); }
 void disable(context_impl &ctx) {
   auto prev = ctx.debug_enabled.fetch_sub(1, memory_order_relaxed);
   if (prev == 1) {
-    lock_guard<mutex> lock(ctx.registry_mux);
+    const lock_guard<mutex> lock(ctx.registry_mux);
     ctx.registry.clear();
   }
 }
@@ -1820,7 +1820,7 @@ void register_instance(context_impl &ctx, const handle &h) {
       return;
     // if (trace)
     //   trace(array("register", name, ref_m(r)));
-    lock_guard<mutex> lock(ctx.registry_mux);
+    const lock_guard<mutex> lock(ctx.registry_mux);
     ctx.registry[name] = h;
   }
 }
@@ -1828,14 +1828,14 @@ void register_instance(context_impl &ctx, const handle &h) {
 void unregister_instance(context_impl &ctx, const string &name) {
   if (not isenabled(ctx))
     return;
-  lock_guard<mutex> lock(ctx.registry_mux);
+  const lock_guard<mutex> lock(ctx.registry_mux);
   // if (trace)
   //   trace(array("unregister", name, ref_m(handle_ref(registry[name]))));
   ctx.registry.erase(name);
 }
 
 auto get_name(context_impl &ctx, const string &name) -> handle {
-  lock_guard<mutex> lock(ctx.registry_mux);
+  const lock_guard<mutex> lock(ctx.registry_mux);
   auto r = ctx.registry.find(name);
   return r != ctx.registry.end() ? r->second : handle{};
 }
@@ -1843,7 +1843,7 @@ auto get_name(context_impl &ctx, const string &name) -> handle {
 auto get_names(context_impl &ctx) -> buffer {
   vector<string> names;
   {
-    lock_guard<mutex> lock(ctx.registry_mux);
+    const lock_guard<mutex> lock(ctx.registry_mux);
     for (const auto &a : ctx.registry)
       if (not a.second.expired())
         names.push_back(a.first);
@@ -1877,7 +1877,7 @@ struct connection {
     pos = str.find_first_of(delim);
     if (pos == string::npos)
       return make_pair(str, "");
-    string word(str.data(), pos);
+    const string word(str.data(), pos);
     str.erase(0, pos + 1);
     return make_pair(word, str);
   }
@@ -1886,7 +1886,7 @@ struct connection {
     if (buf.empty()) {
       vector<string> expired_names;
       {
-        lock_guard<mutex> lock(ctx.registry_mux);
+        const lock_guard<mutex> lock(ctx.registry_mux);
         bool first{true};
         for (const auto &a : ctx.registry) {
           if (not a.second.expired()) {
@@ -1909,7 +1909,7 @@ struct connection {
     } else {
       auto x = getword(buf);
       buf = x.second;
-      handle a = get_name(ctx, x.first);
+      const handle a = get_name(ctx, x.first);
       if (a.expired()) {
         s.write("error: ");
         s.write(x.first);

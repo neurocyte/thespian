@@ -50,7 +50,7 @@ struct logger {
 
   auto receive(const buffer &m) {
     if (verbose) {
-      std::lock_guard<mutex> lock(trace_m);
+      const std::lock_guard<mutex> lock(trace_m);
       cout << name << ": ";
       auto dump = [&](auto val) { cout << val << " "; };
       for (const auto val : m)
@@ -115,7 +115,7 @@ extern "C" auto runtestcase(const char *name) -> int {
   env_t env{};
   env_t log_env{};
   auto trace = [&](const buffer &buf) {
-    lock_guard<mutex> lock(trace_m);
+    const lock_guard<mutex> lock(trace_m);
     cout << buf.to_json() << '\n';
   };
   log_env.on_trace(trace);
