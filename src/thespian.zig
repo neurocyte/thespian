@@ -285,6 +285,31 @@ pub fn error_text() []const u8 {
         &[_]u8{};
 }
 
+pub const ScopedError = struct {
+    buf: [256]u8 = undefined,
+    len: usize = 0,
+};
+
+pub fn store_error(err: *ScopedError) void {
+    if (error_buffer_tl.base) |base| {
+        @memcpy(err.buf[0..error_buffer_tl.len], base[0..error_buffer_tl.len]);
+        err.len = error_buffer_tl.len;
+    } else err.* = .{};
+}
+
+pub fn restore_error(err: *const ScopedError) void {
+    if (err.len > 0) {
+        @memcpy(error_message_buffer[0..err.len], err.buf[0..err.len]);
+        error_buffer_tl = .{
+            .base = &error_message_buffer,
+            .len = err.len,
+        };
+    } else error_buffer_tl = .{
+        .base = null,
+        .len = 0,
+    };
+}
+
 pub fn self_pid() pid_ref {
     return wrap_handle(c.thespian_self());
 }
