@@ -500,7 +500,8 @@ struct instance : std::enable_shared_from_this<instance> {
 auto deadsend(const buffer &m, const ref &from) -> result {
   if (current_instance and !current_instance->is_in_shutdown() and
       !m("exit", type::more)) {
-    return to_error(exit_message("DEADSEND", m, ref_m(from)));
+    return to_error(
+        exit_message("DEADSEND", m, ref_m(from), ref_m(current_instance)));
   }
   return ok();
 }
