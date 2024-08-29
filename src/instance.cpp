@@ -245,8 +245,8 @@ struct instance : std::enable_shared_from_this<instance> {
   }
 
   static auto spawn(context_impl &ctx, behaviour b, exit_handler eh,
-                    string_view name, const ref &link, env_t env)
-      -> expected<handle, error> {
+                    string_view name, const ref &link,
+                    env_t env) -> expected<handle, error> {
     auto pimpl = make_shared<instance>(ctx, move(b), move(eh), name, move(env));
     pimpl->lifetime_ = pimpl;
     handle_ref(pimpl->self_ref_) = pimpl->lifetime_;
@@ -447,8 +447,8 @@ struct instance : std::enable_shared_from_this<instance> {
     return send_raw(array(std::forward<Ts>(parms)...));
   }
 
-  auto spawn_link(behaviour b, string_view name, env_t env)
-      -> expected<handle, error> {
+  auto spawn_link(behaviour b, string_view name,
+                  env_t env) -> expected<handle, error> {
     auto ret = instance::spawn(ctx, move(b), exit_handler{}, name, lifetime_,
                                move(env));
     if (not ret)
@@ -497,10 +497,10 @@ struct instance : std::enable_shared_from_this<instance> {
   env_t env_;
 };
 
-auto deadsend(const buffer &m) -> result {
+auto deadsend(const buffer &m, const ref &from) -> result {
   if (current_instance and !current_instance->is_in_shutdown() and
       !m("exit", type::more)) {
-    return to_error(exit_message("DEADSEND", m));
+    return to_error(exit_message("DEADSEND", m, ref_m(from)));
   }
   return ok();
 }
@@ -550,15 +550,15 @@ auto spawn(behaviour b, string_view name) -> expected<handle, error> {
                          p.env_);
 }
 
-auto spawn(behaviour b, string_view name, env_t env)
-    -> expected<handle, error> {
+auto spawn(behaviour b, string_view name,
+           env_t env) -> expected<handle, error> {
   auto &p = private_call();
   return instance::spawn(p.ctx, move(b), exit_handler{}, name, thespian::ref{},
                          move(env));
 }
 
-auto context::spawn(behaviour b, string_view name, env_t env)
-    -> expected<handle, error> {
+auto context::spawn(behaviour b, string_view name,
+                    env_t env) -> expected<handle, error> {
   return instance::spawn(impl(*this), move(b), exit_handler{}, name,
                          thespian::ref{}, move(env));
 }
@@ -576,8 +576,8 @@ auto context::spawn_link(behaviour b, exit_handler eh, string_view name,
                          move(env));
 }
 
-auto context::spawn_link(behaviour b, exit_handler eh, string_view name)
-    -> expected<handle, error> {
+auto context::spawn_link(behaviour b, exit_handler eh,
+                         string_view name) -> expected<handle, error> {
   return spawn_link(move(b), move(eh), name, env_t{});
 }
 
@@ -587,8 +587,8 @@ auto self_ref() -> handle & { return private_call().self_ref_; }
 auto spawn_link(behaviour b, string_view name) -> expected<handle, error> {
   return private_call().spawn_link(move(b), name);
 }
-auto spawn_link(behaviour b, string_view name, env_t env)
-    -> expected<handle, error> {
+auto spawn_link(behaviour b, string_view name,
+                env_t env) -> expected<handle, error> {
   return private_call().spawn_link(move(b), name, move(env));
 }
 auto send_raw(buffer m) -> result { return private_call().send_raw(move(m)); }
@@ -826,8 +826,8 @@ struct udp_impl {
     }
   }
 
-  [[nodiscard]] auto sendto(string_view data, in6_addr ip, port_t port)
-      -> size_t {
+  [[nodiscard]] auto sendto(string_view data, in6_addr ip,
+                            port_t port) -> size_t {
     if (is_trace_enabled_)
       owner_.env_.trace(
           array("udp", tag_, "sendto", data, executor::to_string(ip), port));
@@ -867,8 +867,8 @@ auto udp::create(string tag) -> udp {
 struct file_descriptor_impl {
   file_descriptor_impl(const file_descriptor_impl &) = delete;
   file_descriptor_impl(file_descriptor_impl &&) = delete;
-  auto operator=(const file_descriptor_impl &)
-      -> file_descriptor_impl & = delete;
+  auto
+  operator=(const file_descriptor_impl &) -> file_descriptor_impl & = delete;
   auto operator=(file_descriptor_impl &&) -> file_descriptor_impl & = delete;
 
   file_descriptor_impl(string_view tag, int fd)
@@ -961,8 +961,8 @@ struct file_stream_impl {
                                     liffile_stream_elock{owner_.lifetime_}](
                                        error_code ec, size_t bytes_written) {
       if (ec) {
-        auto _ =
-            owner_.send("stream", tag_, "write_error", ec.value(), ec.message());
+        auto _ = owner_.send("stream", tag_, "write_error", ec.value(),
+                             ec.message());
       } else {
         auto _ = owner_.send("stream", tag_, "write_complete", bytes_written);
       }
@@ -1497,8 +1497,8 @@ struct connection {
     return ok();
   }
 
-  static auto start(int fd, const handle &owner, const char *tag)
-      -> expected<handle, error> {
+  static auto start(int fd, const handle &owner,
+                    const char *tag) -> expected<handle, error> {
     return spawn(
         [fd, owner, tag]() {
           link(owner);
@@ -1736,8 +1736,8 @@ struct acceptor {
   string listen_path;
 
   acceptor(string_view path, mode m, handle o)
-      : a{::thespian::unx::acceptor::create(tag)}, owner{move(o)}, listen_path{
-                                                                       path} {
+      : a{::thespian::unx::acceptor::create(tag)}, owner{move(o)},
+        listen_path{path} {
     a.listen(path, m);
   }
   ~acceptor() = default;
@@ -1993,8 +1993,8 @@ struct connection {
     return ok();
   }
 
-  static auto start(context_impl &ctx, int fd, const string &prompt)
-      -> expected<handle, error> {
+  static auto start(context_impl &ctx, int fd,
+                    const string &prompt) -> expected<handle, error> {
     return spawn(
         [&ctx, fd, prompt]() {
           ::thespian::receive(
@@ -2050,8 +2050,8 @@ struct acceptor {
     return ok();
   }
 
-  static auto start(context_impl &ctx, port_t port, const string &prompt)
-      -> expected<handle, error> {
+  static auto start(context_impl &ctx, port_t port,
+                    const string &prompt) -> expected<handle, error> {
     return spawn(
         [&ctx, port, prompt]() {
           ::thespian::receive(
@@ -2064,8 +2064,8 @@ struct acceptor {
   }
 };
 
-auto create(context &ctx, port_t port, const string &prompt)
-    -> expected<handle, error> {
+auto create(context &ctx, port_t port,
+            const string &prompt) -> expected<handle, error> {
   return acceptor::start(impl(ctx), port, prompt);
 }
 
