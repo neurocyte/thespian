@@ -186,7 +186,7 @@ template <typename... Ts>
   return exit("UNEXPECTED_MESSAGE:" + b.to_json());
 }
 
-auto deadsend(const buffer &m) -> result;
+auto deadsend(const buffer &m, const ref &from) -> result;
 const auto exit_normal_msg = array("exit", "normal");
 const auto exit_noreceive_msg = array("exit", "noreceive");
 const auto exit_nosyncreceive_msg = array("exit", "nosyncreceive");
@@ -320,11 +320,11 @@ struct instance : std::enable_shared_from_this<instance> {
   }
 
   [[nodiscard]] auto dispatch_sync_raw(buffer m) -> result {
-    if (in_shutdown)
-      return deadsend(m);
     ref from{};
     if (current_instance)
       from = current_instance->lifetime_;
+    if (in_shutdown)
+      return deadsend(m, from);
     run(from, move(m));
     return ok();
   }
@@ -337,7 +337,7 @@ struct instance : std::enable_shared_from_this<instance> {
     if ((not m.is_null()) and is_enabled(channel::send))
       do_trace_raw(ref_m(from), "send", ref_m(this), m);
     if (in_shutdown)
-      return deadsend(m);
+      return deadsend(m, from);
 
     auto run_m = [this, from{from}, m{move(m)}, lifelock{lifetime_}]() {
       run(from, m);
@@ -509,7 +509,7 @@ auto deadsend(const buffer &m) -> result {
   if (auto p = ref_.lock()) {
     return p->send_raw(move(m));
   }
-  return deadsend(m);
+  return deadsend(m, ref_);
 }
 
 auto operator==(const handle &a, const handle &b) -> bool {
