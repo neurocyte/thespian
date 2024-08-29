@@ -87,9 +87,9 @@ fn Pid(comptime own: Ownership) type {
             h.deinit();
         }
 
-        pub fn delay_send_cancellable(self: Self, a: std.mem.Allocator, delay_us: u64, m: anytype) error{ OutOfMemory, ThespianSpawnFailed }!Cancellable {
+        pub fn delay_send_cancellable(self: Self, a: std.mem.Allocator, tag_: [:0]const u8, delay_us: u64, m: anytype) error{ OutOfMemory, ThespianSpawnFailed }!Cancellable {
             const msg = message.fmt(m);
-            return Cancellable.init(try DelayedSender.send(self, a, delay_us, msg));
+            return Cancellable.init(try DelayedSender.send(self, a, tag_, delay_us, msg));
         }
 
         pub fn forward_error(self: Self, e: anyerror, stack_trace: ?*std.builtin.StackTrace) result {
@@ -450,11 +450,11 @@ pub const context = struct {
         self.context_destroy(self.context);
     }
 
-    pub fn get_last_error(buf: []u8) [] const u8 {
+    pub fn get_last_error(buf: []u8) []const u8 {
         const err = std.mem.span(c.thespian_get_last_error());
         const err_len = @min(buf.len, err.len);
         @memcpy(buf[0..err_len], err[0..err_len]);
-        return buf[0..err_len]; 
+        return buf[0..err_len];
     }
 };
 
@@ -835,7 +835,7 @@ const DelayedSender = struct {
 
     const ReceiverT = Receiver(*DelayedSender);
 
-    fn send(pid_: pid_ref, a: std.mem.Allocator, delay_us: u64, m: message) error{ OutOfMemory, ThespianSpawnFailed }!pid {
+    fn send(pid_: pid_ref, a: std.mem.Allocator, tag_: [:0]const u8, delay_us: u64, m: message) error{ OutOfMemory, ThespianSpawnFailed }!pid {
         const self = try a.create(DelayedSender);
         self.* = .{
             .a = a,
@@ -843,7 +843,7 @@ const DelayedSender = struct {
             .message = try m.clone(a),
             .delay_us = delay_us,
         };
-        return spawn_link(a, self, start, "delayed_sender");
+        return spawn_link(a, self, start, tag_);
     }
 
     fn start(self: *DelayedSender) result {
