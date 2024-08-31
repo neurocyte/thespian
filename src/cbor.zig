@@ -340,7 +340,7 @@ pub fn decodeMapHeader(iter: *[]const u8) CborError!usize {
         return 0;
     if (t.major != 5)
         return error.CborInvalidType;
-    return decodePInt(iter, t.minor);
+    return @intCast(try decodePInt(iter, t.minor));
 }
 
 pub fn decodeArrayHeader(iter: *[]const u8) CborError!usize {
