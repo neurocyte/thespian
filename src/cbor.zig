@@ -18,19 +18,13 @@ pub const CborError = error{
     OutOfMemory,
 };
 
-pub const CborJsonError = error{
+pub const CborJsonError = (CborError || error{
     BufferUnderrun,
-    CborIntegerTooLarge,
-    CborIntegerTooSmall,
-    CborInvalidType,
-    CborTooShort,
     CborUnsupportedType,
     NoSpaceLeft,
-    OutOfMemory,
-    Overflow,
     SyntaxError,
     UnexpectedEndOfInput,
-};
+});
 
 const cbor_magic_null: u8 = 0xf6;
 const cbor_magic_true: u8 = 0xf5;
@@ -1003,7 +997,9 @@ fn writeJsonValue(writer: anytype, value: json.Value) !void {
 }
 
 fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) CborJsonError!usize {
-    var partial = try std.BoundedArray(u8, 4096).init(0);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var partial = std.ArrayList(u8).init(arena.allocator());
     var count: usize = 0;
 
     var token = try scanner.next();
@@ -1019,7 +1015,7 @@ fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) Cb
 
             .number => |v| {
                 try partial.appendSlice(v);
-                try writeJsonValue(writer, json.Value.parseFromNumberSlice(partial.slice()));
+                try writeJsonValue(writer, json.Value.parseFromNumberSlice(partial.items));
                 try partial.resize(0);
             },
             .partial_number => |v| {
@@ -1029,7 +1025,7 @@ fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) Cb
 
             .string => |v| {
                 try partial.appendSlice(v);
-                try writeString(writer, partial.slice());
+                try writeString(writer, partial.items);
                 try partial.resize(0);
             },
             .partial_string => |v| {
