@@ -119,20 +119,20 @@ test "cbor.matchI64 8byte" {
     try expectEqual(iter[0], 0xDF);
 }
 
-test "cbor.matchI64 error.CborIntegerTooLarge" {
+test "cbor.matchI64 error.IntegerTooLarge" {
     var buf = [_]u8{ 0x1B, 0xA9, 0x0A, 0xDE, 0x0D, 0x4E, 0x2B, 0x8A, 0x1F, 0xDF };
     var iter: []const u8 = &buf;
     var val: i64 = 0;
     const result = matchInt(i64, &iter, &val);
-    try expectError(error.CborIntegerTooLarge, result);
+    try expectError(error.IntegerTooLarge, result);
 }
 
-test "cbor.matchI64 error.CborTooShort" {
+test "cbor.matchI64 error.TooShort" {
     var buf = [_]u8{ 0x19, 0x01 };
     var iter: []const u8 = &buf;
     var val: i64 = 0;
     const result = matchInt(i64, &iter, &val);
-    try expectError(error.CborTooShort, result);
+    try expectError(error.TooShort, result);
 }
 
 test "cbor.matchI64Value" {
@@ -372,7 +372,7 @@ test "cbor.extract_number_limits" {
     var i: i64 = undefined;
     const m = fmt(&buf, bigint);
     try expect(try match(m, extract(&u)));
-    try expectError(error.CborIntegerTooLarge, match(m, extract(&i)));
+    try expectError(error.IntegerTooLarge, match(m, extract(&i)));
 }
 
 test "cbor.toJson" {

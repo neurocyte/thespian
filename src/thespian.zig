@@ -47,6 +47,8 @@ pub const Ownership = enum {
     Owned,
 };
 
+pub const CallError = error{ OutOfMemory, ThespianSpawnFailed, Timeout };
+
 fn Pid(comptime own: Ownership) type {
     return struct {
         h: c.thespian_handle,
@@ -78,7 +80,7 @@ fn Pid(comptime own: Ownership) type {
             return self.send_raw(message.fmt(m));
         }
 
-        pub fn call(self: Self, a: std.mem.Allocator, timeout_ns: u64, request: anytype) error{ OutOfMemory, ThespianSpawnFailed, Timeout }!message {
+        pub fn call(self: Self, a: std.mem.Allocator, timeout_ns: u64, request: anytype) CallError!message {
             return CallContext.call(a, self.ref(), timeout_ns, message.fmt(request));
         }
 
@@ -192,7 +194,7 @@ pub const message = struct {
         return .{ .buf = try a.dupe(u8, self.buf) };
     }
 
-    pub fn to_json(self: *const Self, buffer: []u8) cbor.CborJsonError![]const u8 {
+    pub fn to_json(self: *const Self, buffer: []u8) (cbor.JsonEncodeError || error{NoSpaceLeft})![]const u8 {
         return cbor.toJson(self.buf, buffer);
     }
 
@@ -805,7 +807,7 @@ const CallContext = struct {
     const Self = @This();
     const ReceiverT = Receiver(*Self);
 
-    pub fn call(a: std.mem.Allocator, to: pid_ref, timeout_ns: u64, request: message) error{ OutOfMemory, ThespianSpawnFailed, Timeout }!message {
+    pub fn call(a: std.mem.Allocator, to: pid_ref, timeout_ns: u64, request: message) CallError!message {
         var response: ?message = null;
         var self: Self = .{
             .receiver = undefined,

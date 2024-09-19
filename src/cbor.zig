@@ -10,18 +10,20 @@ const minInt = std.math.minInt;
 const json = std.json;
 const fba = std.heap.FixedBufferAllocator;
 
-pub const CborError = error{
-    CborIntegerTooLarge,
-    CborIntegerTooSmall,
-    CborInvalidType,
-    CborTooShort,
+pub const Error = error{
+    IntegerTooLarge,
+    IntegerTooSmall,
+    InvalidType,
+    TooShort,
     OutOfMemory,
 };
 
-pub const CborJsonError = (CborError || error{
+pub const JsonEncodeError = (Error || error{
+    UnsupportedType,
+});
+
+pub const JsonDecodeError = (Error || error{
     BufferUnderrun,
-    CborUnsupportedType,
-    NoSpaceLeft,
     SyntaxError,
     UnexpectedEndOfInput,
 });
@@ -287,9 +289,9 @@ pub fn fmt(buf: []u8, value: anytype) []const u8 {
 
 const CborType = struct { type: u8, minor: u5, major: u3 };
 
-pub fn decodeType(iter: *[]const u8) error{CborTooShort}!CborType {
+pub fn decodeType(iter: *[]const u8) error{TooShort}!CborType {
     if (iter.len < 1)
-        return error.CborTooShort;
+        return error.TooShort;
     const type_: u8 = iter.*[0];
     const bits: packed struct { minor: u5, major: u3 } = @bitCast(type_);
     iter.* = iter.*[1..];
@@ -298,7 +300,7 @@ pub fn decodeType(iter: *[]const u8) error{CborTooShort}!CborType {
 
 fn decodeUIntLengthRecurse(iter: *[]const u8, length: usize, acc: u64) !u64 {
     if (iter.len < 1)
-        return error.CborTooShort;
+        return error.TooShort;
     const v: u8 = iter.*[0];
     iter.* = iter.*[1..];
     var i = acc | v;
@@ -320,48 +322,48 @@ fn decodePInt(iter: *[]const u8, minor: u5) !u64 {
         25 => decodeUIntLength(iter, 2), // 2 byte
         26 => decodeUIntLength(iter, 4), // 4 byte
         27 => decodeUIntLength(iter, 8), // 8 byte
-        else => error.CborInvalidType,
+        else => error.InvalidType,
     };
 }
 
-fn decodeNInt(iter: *[]const u8, minor: u5) CborError!i64 {
+fn decodeNInt(iter: *[]const u8, minor: u5) Error!i64 {
     return -@as(i64, @intCast(try decodePInt(iter, minor) + 1));
 }
 
-pub fn decodeMapHeader(iter: *[]const u8) CborError!usize {
+pub fn decodeMapHeader(iter: *[]const u8) Error!usize {
     const t = try decodeType(iter);
     if (t.type == cbor_magic_null)
         return 0;
     if (t.major != 5)
-        return error.CborInvalidType;
+        return error.InvalidType;
     return @intCast(try decodePInt(iter, t.minor));
 }
 
-pub fn decodeArrayHeader(iter: *[]const u8) CborError!usize {
+pub fn decodeArrayHeader(iter: *[]const u8) Error!usize {
     const t = try decodeType(iter);
     if (t.type == cbor_magic_null)
         return 0;
     if (t.major != 4)
-        return error.CborInvalidType;
+        return error.InvalidType;
     return @intCast(try decodePInt(iter, t.minor));
 }
 
-fn decodeString(iter_: *[]const u8, minor: u5) CborError![]const u8 {
+fn decodeString(iter_: *[]const u8, minor: u5) Error![]const u8 {
     var iter = iter_.*;
     const len: usize = @intCast(try decodePInt(&iter, minor));
     if (iter.len < len)
-        return error.CborTooShort;
+        return error.TooShort;
     const s = iter[0..len];
     iter = iter[len..];
     iter_.* = iter;
     return s;
 }
 
-fn decodeBytes(iter: *[]const u8, minor: u5) CborError![]const u8 {
+fn decodeBytes(iter: *[]const u8, minor: u5) Error![]const u8 {
     return decodeString(iter, minor);
 }
 
-fn decodeJsonArray(iter_: *[]const u8, minor: u5, arr: *json.Array) CborError!bool {
+fn decodeJsonArray(iter_: *[]const u8, minor: u5, arr: *json.Array) Error!bool {
     var iter = iter_.*;
     var n = try decodePInt(&iter, minor);
     while (n > 0) {
@@ -374,7 +376,7 @@ fn decodeJsonArray(iter_: *[]const u8, minor: u5, arr: *json.Array) CborError!bo
     return true;
 }
 
-fn decodeJsonObject(iter_: *[]const u8, minor: u5, obj: *json.ObjectMap) CborError!bool {
+fn decodeJsonObject(iter_: *[]const u8, minor: u5, obj: *json.ObjectMap) Error!bool {
     var iter = iter_.*;
     var n = try decodePInt(&iter, minor);
     while (n > 0) {
@@ -393,12 +395,12 @@ fn decodeJsonObject(iter_: *[]const u8, minor: u5, obj: *json.ObjectMap) CborErr
     return true;
 }
 
-fn decodeFloat(comptime T: type, iter_: *[]const u8, t: CborType) CborError!T {
+fn decodeFloat(comptime T: type, iter_: *[]const u8, t: CborType) Error!T {
     var v: T = undefined;
     var iter = iter_.*;
     switch (t.type) {
         cbor_magic_float16 => {
-            if (iter.len < 2) return error.CborTooShort;
+            if (iter.len < 2) return error.TooShort;
             var f: f16 = undefined;
             var f_bytes = std.mem.asBytes(&f);
             switch (native_endian) {
@@ -412,7 +414,7 @@ fn decodeFloat(comptime T: type, iter_: *[]const u8, t: CborType) CborError!T {
             iter = iter[2..];
         },
         cbor_magic_float32 => {
-            if (iter.len < 4) return error.CborTooShort;
+            if (iter.len < 4) return error.TooShort;
             var f: f32 = undefined;
             var f_bytes = std.mem.asBytes(&f);
             switch (native_endian) {
@@ -428,7 +430,7 @@ fn decodeFloat(comptime T: type, iter_: *[]const u8, t: CborType) CborError!T {
             iter = iter[4..];
         },
         cbor_magic_float64 => {
-            if (iter.len < 8) return error.CborTooShort;
+            if (iter.len < 8) return error.TooShort;
             var f: f64 = undefined;
             var f_bytes = std.mem.asBytes(&f);
             switch (native_endian) {
@@ -447,26 +449,26 @@ fn decodeFloat(comptime T: type, iter_: *[]const u8, t: CborType) CborError!T {
             v = @floatCast(f);
             iter = iter[8..];
         },
-        else => return error.CborInvalidType,
+        else => return error.InvalidType,
     }
     iter_.* = iter;
     return v;
 }
 
-pub fn matchInt(comptime T: type, iter_: *[]const u8, val: *T) CborError!bool {
+pub fn matchInt(comptime T: type, iter_: *[]const u8, val: *T) Error!bool {
     var iter = iter_.*;
     const t = try decodeType(&iter);
     val.* = switch (t.major) {
         0 => blk: { // positive integer
             const v = try decodePInt(&iter, t.minor);
             if (v > maxInt(T))
-                return error.CborIntegerTooLarge;
+                return error.IntegerTooLarge;
             break :blk @intCast(v);
         },
         1 => blk: { // negative integer
             const v = try decodeNInt(&iter, t.minor);
             if (v < minInt(T))
-                return error.CborIntegerTooSmall;
+                return error.IntegerTooSmall;
             break :blk @intCast(v);
         },
 
@@ -476,12 +478,12 @@ pub fn matchInt(comptime T: type, iter_: *[]const u8, val: *T) CborError!bool {
     return true;
 }
 
-pub fn matchIntValue(comptime T: type, iter: *[]const u8, val: T) CborError!bool {
+pub fn matchIntValue(comptime T: type, iter: *[]const u8, val: T) Error!bool {
     var v: T = 0;
     return if (try matchInt(T, iter, &v)) v == val else false;
 }
 
-pub fn matchBool(iter_: *[]const u8, v: *bool) CborError!bool {
+pub fn matchBool(iter_: *[]const u8, v: *bool) Error!bool {
     var iter = iter_.*;
     const t = try decodeType(&iter);
     if (t.major == 7) { // special
@@ -499,39 +501,39 @@ pub fn matchBool(iter_: *[]const u8, v: *bool) CborError!bool {
     return false;
 }
 
-fn matchBoolValue(iter: *[]const u8, val: bool) CborError!bool {
+fn matchBoolValue(iter: *[]const u8, val: bool) Error!bool {
     var v: bool = false;
     return if (try matchBool(iter, &v)) v == val else false;
 }
 
-fn matchFloat(comptime T: type, iter_: *[]const u8, v: *T) CborError!bool {
+fn matchFloat(comptime T: type, iter_: *[]const u8, v: *T) Error!bool {
     var iter = iter_.*;
     const t = try decodeType(&iter);
     v.* = decodeFloat(T, &iter, t) catch |e| switch (e) {
-        error.CborInvalidType => return false,
+        error.InvalidType => return false,
         else => return e,
     };
     iter_.* = iter;
     return true;
 }
 
-fn matchFloatValue(comptime T: type, iter: *[]const u8, val: T) CborError!bool {
+fn matchFloatValue(comptime T: type, iter: *[]const u8, val: T) Error!bool {
     var v: T = 0.0;
     return if (try matchFloat(T, iter, &v)) v == val else false;
 }
 
-fn skipString(iter: *[]const u8, minor: u5) CborError!void {
+fn skipString(iter: *[]const u8, minor: u5) Error!void {
     const len: usize = @intCast(try decodePInt(iter, minor));
     if (iter.len < len)
-        return error.CborTooShort;
+        return error.TooShort;
     iter.* = iter.*[len..];
 }
 
-fn skipBytes(iter: *[]const u8, minor: u5) CborError!void {
+fn skipBytes(iter: *[]const u8, minor: u5) Error!void {
     return skipString(iter, minor);
 }
 
-fn skipArray(iter: *[]const u8, minor: u5) CborError!void {
+fn skipArray(iter: *[]const u8, minor: u5) Error!void {
     var len = try decodePInt(iter, minor);
     while (len > 0) {
         try skipValue(iter);
@@ -539,7 +541,7 @@ fn skipArray(iter: *[]const u8, minor: u5) CborError!void {
     }
 }
 
-fn skipMap(iter: *[]const u8, minor: u5) CborError!void {
+fn skipMap(iter: *[]const u8, minor: u5) Error!void {
     var len = try decodePInt(iter, minor);
     len *= 2;
     while (len > 0) {
@@ -548,11 +550,11 @@ fn skipMap(iter: *[]const u8, minor: u5) CborError!void {
     }
 }
 
-pub fn skipValue(iter: *[]const u8) CborError!void {
+pub fn skipValue(iter: *[]const u8) Error!void {
     try skipValueType(iter, try decodeType(iter));
 }
 
-fn skipValueType(iter: *[]const u8, t: CborType) CborError!void {
+fn skipValueType(iter: *[]const u8, t: CborType) Error!void {
     switch (t.major) {
         0 => { // positive integer
             _ = try decodePInt(iter, t.minor);
@@ -573,19 +575,19 @@ fn skipValueType(iter: *[]const u8, t: CborType) CborError!void {
             try skipMap(iter, t.minor);
         },
         6 => { // tag
-            return error.CborInvalidType;
+            return error.InvalidType;
         },
         7 => switch (t.type) { // special
             cbor_magic_null, cbor_magic_false, cbor_magic_true => return,
             cbor_magic_float16 => iter.* = iter.*[2..],
             cbor_magic_float32 => iter.* = iter.*[4..],
             cbor_magic_float64 => iter.* = iter.*[8..],
-            else => return error.CborInvalidType,
+            else => return error.InvalidType,
         },
     }
 }
 
-fn matchType(iter_: *[]const u8, v: *value_type) CborError!bool {
+fn matchType(iter_: *[]const u8, v: *value_type) Error!bool {
     var iter = iter_.*;
     const t = try decodeType(&iter);
     try skipValueType(&iter, t);
@@ -607,12 +609,12 @@ fn matchType(iter_: *[]const u8, v: *value_type) CborError!bool {
     return true;
 }
 
-fn matchValueType(iter: *[]const u8, t: value_type) CborError!bool {
+fn matchValueType(iter: *[]const u8, t: value_type) Error!bool {
     var v: value_type = value_type.unknown;
     return if (try matchType(iter, &v)) (t == value_type.any or t == v) else false;
 }
 
-pub fn matchString(iter_: *[]const u8, val: *[]const u8) CborError!bool {
+pub fn matchString(iter_: *[]const u8, val: *[]const u8) Error!bool {
     var iter = iter_.*;
     const t = try decodeType(&iter);
     val.* = switch (t.major) {
@@ -624,7 +626,7 @@ pub fn matchString(iter_: *[]const u8, val: *[]const u8) CborError!bool {
     return true;
 }
 
-fn matchStringValue(iter: *[]const u8, lit: []const u8) CborError!bool {
+fn matchStringValue(iter: *[]const u8, lit: []const u8) Error!bool {
     var val: []const u8 = undefined;
     return if (try matchString(iter, &val)) eql(u8, val, lit) else false;
 }
@@ -633,7 +635,7 @@ fn matchError(comptime T: type) noreturn {
     @compileError("cannot match type '" ++ @typeName(T) ++ "' to cbor stream");
 }
 
-pub fn matchValue(iter: *[]const u8, value: anytype) CborError!bool {
+pub fn matchValue(iter: *[]const u8, value: anytype) Error!bool {
     if (@TypeOf(value) == value_type)
         return matchValueType(iter, value);
     const T = comptime @TypeOf(value);
@@ -659,7 +661,7 @@ pub fn matchValue(iter: *[]const u8, value: anytype) CborError!bool {
     };
 }
 
-fn matchJsonValue(iter_: *[]const u8, v: *json.Value, a: std.mem.Allocator) CborError!bool {
+fn matchJsonValue(iter_: *[]const u8, v: *json.Value, a: std.mem.Allocator) Error!bool {
     var iter = iter_.*;
     const t = try decodeType(&iter);
     const ret = switch (t.major) {
@@ -711,7 +713,7 @@ fn matchJsonValue(iter_: *[]const u8, v: *json.Value, a: std.mem.Allocator) Cbor
     return ret;
 }
 
-fn matchArrayMore(iter_: *[]const u8, n_: u64) CborError!bool {
+fn matchArrayMore(iter_: *[]const u8, n_: u64) Error!bool {
     var iter = iter_.*;
     var n = n_;
     while (n > 0) {
@@ -723,7 +725,7 @@ fn matchArrayMore(iter_: *[]const u8, n_: u64) CborError!bool {
     return true;
 }
 
-fn matchArray(iter_: *[]const u8, arr: anytype, info: anytype) CborError!bool {
+fn matchArray(iter_: *[]const u8, arr: anytype, info: anytype) Error!bool {
     var iter = iter_.*;
     var n = try decodeArrayHeader(&iter);
     inline for (info.fields) |f| {
@@ -756,13 +758,13 @@ fn matchJsonObject(iter_: *[]const u8, obj: *json.ObjectMap) !bool {
     if (t.type == cbor_magic_null)
         return true;
     if (t.major != 5)
-        return error.CborInvalidType;
+        return error.InvalidType;
     const ret = try decodeJsonObject(&iter, t.minor, obj);
     if (ret) iter_.* = iter;
     return ret;
 }
 
-pub fn match(buf: []const u8, pattern: anytype) CborError!bool {
+pub fn match(buf: []const u8, pattern: anytype) Error!bool {
     var iter: []const u8 = buf;
     return matchValue(&iter, pattern);
 }
@@ -797,7 +799,7 @@ const JsonValueExtractor = struct {
         return .{ .dest = dest };
     }
 
-    pub fn extract(self: Self, iter: *[]const u8) CborError!bool {
+    pub fn extract(self: Self, iter: *[]const u8) Error!bool {
         var null_heap_: [0]u8 = undefined;
         var heap = fba.init(&null_heap_);
         return matchJsonValue(iter, self.dest, heap.allocator());
@@ -814,7 +816,7 @@ const JsonObjectExtractor = struct {
         return .{ .dest = dest };
     }
 
-    pub fn extract(self: Self, iter: *[]const u8) CborError!bool {
+    pub fn extract(self: Self, iter: *[]const u8) Error!bool {
         return matchJsonObject(iter, self.dest);
     }
 };
@@ -833,7 +835,7 @@ fn Extractor(comptime T: type) type {
             return .{ .dest = dest };
         }
 
-        pub fn extract(self: Self, iter: *[]const u8) CborError!bool {
+        pub fn extract(self: Self, iter: *[]const u8) Error!bool {
             switch (comptime @typeInfo(T)) {
                 .Int, .ComptimeInt => return matchInt(T, iter, self.dest),
                 .Bool => return matchBool(iter, self.dest),
@@ -882,7 +884,7 @@ const CborExtractor = struct {
         return .{ .dest = dest };
     }
 
-    pub fn extract(self: Self, iter: *[]const u8) CborError!bool {
+    pub fn extract(self: Self, iter: *[]const u8) Error!bool {
         const b = iter.*;
         try skipValue(iter);
         self.dest.* = b[0..(b.len - iter.len)];
@@ -913,14 +915,14 @@ pub fn JsonStream(comptime T: type) type {
             try w.beginObject();
             while (count > 0) : (count -= 1) {
                 const t = try decodeType(iter);
-                if (t.major != 3) return error.CborInvalidType;
+                if (t.major != 3) return error.InvalidType;
                 try w.objectField(try decodeString(iter, t.minor));
                 try jsonWriteValue(w, iter);
             }
             try w.endObject();
         }
 
-        pub fn jsonWriteValue(w: *JsonWriter, iter: *[]const u8) (CborJsonError || Writer.Error)!void {
+        pub fn jsonWriteValue(w: *JsonWriter, iter: *[]const u8) (JsonEncodeError || Writer.Error)!void {
             const t = try decodeType(iter);
             switch (t.type) {
                 cbor_magic_false => return w.write(false),
@@ -934,17 +936,17 @@ pub fn JsonStream(comptime T: type) type {
             return switch (t.major) {
                 0 => w.write(try decodePInt(iter, t.minor)), // positive integer
                 1 => w.write(try decodeNInt(iter, t.minor)), // negative integer
-                2 => error.CborUnsupportedType, // bytes
+                2 => error.UnsupportedType, // bytes
                 3 => w.write(try decodeString(iter, t.minor)), // string
                 4 => jsonWriteArray(w, iter, t.minor), // array
                 5 => jsonWriteMap(w, iter, t.minor), // map
-                else => error.CborInvalidType,
+                else => error.InvalidType,
             };
         }
     };
 }
 
-pub fn toJson(cbor_buf: []const u8, json_buf: []u8) CborJsonError![]const u8 {
+pub fn toJson(cbor_buf: []const u8, json_buf: []u8) (JsonEncodeError || error{NoSpaceLeft})![]const u8 {
     var fbs = fixedBufferStream(json_buf);
     var s = json.writeStream(fbs.writer(), .{});
     var iter: []const u8 = cbor_buf;
@@ -952,7 +954,7 @@ pub fn toJson(cbor_buf: []const u8, json_buf: []u8) CborJsonError![]const u8 {
     return fbs.getWritten();
 }
 
-pub fn toJsonAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonError![]const u8 {
+pub fn toJsonAlloc(a: std.mem.Allocator, cbor_buf: []const u8) (JsonEncodeError)![]const u8 {
     var buf = std.ArrayList(u8).init(a);
     defer buf.deinit();
     var s = json.writeStream(buf.writer(), .{});
@@ -961,7 +963,7 @@ pub fn toJsonAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonError![]c
     return buf.toOwnedSlice();
 }
 
-pub fn toJsonPretty(cbor_buf: []const u8, json_buf: []u8) CborJsonError![]const u8 {
+pub fn toJsonPretty(cbor_buf: []const u8, json_buf: []u8) (JsonEncodeError || error{NoSpaceLeft})![]const u8 {
     var fbs = fixedBufferStream(json_buf);
     var s = json.writeStream(fbs.writer(), .{ .whitespace = .indent_1 });
     var iter: []const u8 = cbor_buf;
@@ -969,7 +971,7 @@ pub fn toJsonPretty(cbor_buf: []const u8, json_buf: []u8) CborJsonError![]const 
     return fbs.getWritten();
 }
 
-pub fn toJsonPrettyAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonError![]const u8 {
+pub fn toJsonPrettyAlloc(a: std.mem.Allocator, cbor_buf: []const u8) JsonEncodeError![]const u8 {
     var buf = std.ArrayList(u8).init(a);
     defer buf.deinit();
     var s = json.writeStream(buf.writer(), .{ .whitespace = .indent_1 });
@@ -978,7 +980,7 @@ pub fn toJsonPrettyAlloc(a: std.mem.Allocator, cbor_buf: []const u8) CborJsonErr
     return buf.toOwnedSlice();
 }
 
-pub fn toJsonOptsAlloc(a: std.mem.Allocator, cbor_buf: []const u8, opts: std.json.StringifyOptions) CborJsonError![]const u8 {
+pub fn toJsonOptsAlloc(a: std.mem.Allocator, cbor_buf: []const u8, opts: std.json.StringifyOptions) JsonEncodeError![]const u8 {
     var buf = std.ArrayList(u8).init(a);
     defer buf.deinit();
     var s = json.writeStream(buf.writer(), opts);
@@ -996,10 +998,11 @@ fn writeJsonValue(writer: anytype, value: json.Value) !void {
     };
 }
 
-fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) CborJsonError!usize {
+fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) (JsonDecodeError || @TypeOf(writer).Error)!usize {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var partial = std.ArrayList(u8).init(arena.allocator());
+    var sfa = std.heap.stackFallback(local_heap_size, arena.allocator());
+    var partial = std.ArrayList(u8).init(sfa.get());
     var count: usize = 0;
 
     var token = try scanner.next();
@@ -1057,25 +1060,29 @@ fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) Cb
 
 pub const local_heap_size = 4096 * 16;
 
-fn writeJsonArray(writer_: anytype, scanner: *json.Scanner) CborJsonError!void {
-    var buf: [local_heap_size]u8 = undefined;
-    var stream = fixedBufferStream(&buf);
-    const writer = stream.writer();
+fn writeJsonArray(writer_: anytype, scanner: *json.Scanner) (JsonDecodeError || @TypeOf(writer_).Error)!void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var sfa = std.heap.stackFallback(local_heap_size, arena.allocator());
+    var buf = std.ArrayList(u8).init(sfa.get());
+    const writer = buf.writer();
     const count = try jsonScanUntil(writer, scanner, .array_end);
     try writeArrayHeader(writer_, count);
-    try writer_.writeAll(stream.getWritten());
+    try writer_.writeAll(buf.items);
 }
 
-fn writeJsonObject(writer_: anytype, scanner: *json.Scanner) CborJsonError!void {
-    var buf: [local_heap_size]u8 = undefined;
-    var stream = fixedBufferStream(&buf);
-    const writer = stream.writer();
+fn writeJsonObject(writer_: anytype, scanner: *json.Scanner) (JsonDecodeError || @TypeOf(writer_).Error)!void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var sfa = std.heap.stackFallback(local_heap_size, arena.allocator());
+    var buf = std.ArrayList(u8).init(sfa.get());
+    const writer = buf.writer();
     const count = try jsonScanUntil(writer, scanner, .object_end);
     try writeMapHeader(writer_, count / 2);
-    try writer_.writeAll(stream.getWritten());
+    try writer_.writeAll(buf.items);
 }
 
-pub fn fromJson(json_buf: []const u8, cbor_buf: []u8) ![]const u8 {
+pub fn fromJson(json_buf: []const u8, cbor_buf: []u8) (JsonDecodeError || error{NoSpaceLeft})![]const u8 {
     var local_heap_: [local_heap_size]u8 = undefined;
     var heap = fba.init(&local_heap_);
     var stream = fixedBufferStream(cbor_buf);
@@ -1088,7 +1095,7 @@ pub fn fromJson(json_buf: []const u8, cbor_buf: []u8) ![]const u8 {
     return stream.getWritten();
 }
 
-pub fn fromJsonAlloc(a: std.mem.Allocator, json_buf: []const u8) ![]const u8 {
+pub fn fromJsonAlloc(a: std.mem.Allocator, json_buf: []const u8) JsonDecodeError![]const u8 {
     var stream = std.ArrayList(u8).init(a);
     defer stream.deinit();
     const writer = stream.writer();
