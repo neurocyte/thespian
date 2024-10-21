@@ -198,7 +198,7 @@ fn writeNull(writer: anytype) @TypeOf(writer).Error!void {
 }
 
 fn writeErrorset(writer: anytype, err: anyerror) @TypeOf(writer).Error!void {
-    var buf: [local_heap_size]u8 = undefined;
+    var buf: [256]u8 = undefined;
     var stream = fixedBufferStream(&buf);
     const writer_ = stream.writer();
     _ = writer_.write("error.") catch @panic("cbor.writeErrorset failed!");
@@ -1001,7 +1001,7 @@ fn writeJsonValue(writer: anytype, value: json.Value) !void {
 fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) (JsonDecodeError || @TypeOf(writer).Error)!usize {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var sfa = std.heap.stackFallback(local_heap_size, arena.allocator());
+    var sfa = std.heap.stackFallback(1024, arena.allocator());
     var partial = std.ArrayList(u8).init(sfa.get());
     var count: usize = 0;
 
@@ -1058,12 +1058,10 @@ fn jsonScanUntil(writer: anytype, scanner: *json.Scanner, end_token: anytype) (J
     return count;
 }
 
-pub const local_heap_size = 4096 * 16;
-
 fn writeJsonArray(writer_: anytype, scanner: *json.Scanner) (JsonDecodeError || @TypeOf(writer_).Error)!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var sfa = std.heap.stackFallback(local_heap_size, arena.allocator());
+    var sfa = std.heap.stackFallback(1024, arena.allocator());
     var buf = std.ArrayList(u8).init(sfa.get());
     const writer = buf.writer();
     const count = try jsonScanUntil(writer, scanner, .array_end);
@@ -1074,7 +1072,7 @@ fn writeJsonArray(writer_: anytype, scanner: *json.Scanner) (JsonDecodeError || 
 fn writeJsonObject(writer_: anytype, scanner: *json.Scanner) (JsonDecodeError || @TypeOf(writer_).Error)!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    var sfa = std.heap.stackFallback(local_heap_size, arena.allocator());
+    var sfa = std.heap.stackFallback(1024, arena.allocator());
     var buf = std.ArrayList(u8).init(sfa.get());
     const writer = buf.writer();
     const count = try jsonScanUntil(writer, scanner, .object_end);
@@ -1083,12 +1081,13 @@ fn writeJsonObject(writer_: anytype, scanner: *json.Scanner) (JsonDecodeError ||
 }
 
 pub fn fromJson(json_buf: []const u8, cbor_buf: []u8) (JsonDecodeError || error{NoSpaceLeft})![]const u8 {
-    var local_heap_: [local_heap_size]u8 = undefined;
-    var heap = fba.init(&local_heap_);
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    var sfa = std.heap.stackFallback(1024, arena.allocator());
     var stream = fixedBufferStream(cbor_buf);
     const writer = stream.writer();
 
-    var scanner = json.Scanner.initCompleteInput(heap.allocator(), json_buf);
+    var scanner = json.Scanner.initCompleteInput(sfa.get(), json_buf);
     defer scanner.deinit();
 
     _ = try jsonScanUntil(writer, &scanner, .end_of_document);
