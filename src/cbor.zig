@@ -989,7 +989,7 @@ pub fn toJsonOptsAlloc(a: std.mem.Allocator, cbor_buf: []const u8, opts: std.jso
     return buf.toOwnedSlice();
 }
 
-fn writeJsonValue(writer: anytype, value: json.Value) !void {
+pub fn writeJsonValue(writer: anytype, value: json.Value) !void {
     try switch (value) {
         .array => |_| unreachable,
         .object => |_| unreachable,
