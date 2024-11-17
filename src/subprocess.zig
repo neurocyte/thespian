@@ -81,10 +81,10 @@ const Proc = struct {
     const Receiver = tp.Receiver(*Proc);
 
     fn create(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
-        const self: *Proc = try a.create(Proc);
-
         var args = std.heap.ArenaAllocator.init(a);
         const args_a = args.allocator();
+        errdefer args.deinit();
+
         var iter = argv.buf;
         var len = cbor.decodeArrayHeader(&iter) catch return error.InvalidArgument;
         var argv_ = try args_a.alloc([]const u8, len);
@@ -102,6 +102,8 @@ const Proc = struct {
         child.stdout_behavior = .Pipe;
         child.stderr_behavior = .Pipe;
 
+        const self: *Proc = try a.create(Proc);
+        errdefer a.destroy(self);
         self.* = .{
             .a = a,
             .receiver = Receiver.init(receive, self),
@@ -115,13 +117,14 @@ const Proc = struct {
     }
 
     fn deinit(self: *Proc) void {
-        self.args.deinit();
         if (self.fd_stdin) |fd| fd.deinit();
         if (self.fd_stdout) |fd| fd.deinit();
         if (self.fd_stderr) |fd| fd.deinit();
         self.stdin_buffer.deinit();
         self.parent.deinit();
+        self.args.deinit();
         self.a.free(self.tag);
+        self.a.destroy(self);
     }
 
     fn start(self: *Proc) tp.result {
