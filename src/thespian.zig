@@ -241,7 +241,7 @@ fn store_stack_trace(a: std.mem.Allocator, stack_trace: std.builtin.StackTrace, 
     }
 }
 
-pub fn exit_normal() result {
+pub fn exit_normal() error{Exit} {
     return set_error_msg(exit_message("normal", null));
 }
 
@@ -249,7 +249,7 @@ pub fn exit(e: []const u8) error{Exit} {
     return set_error_msg(exit_message(e, null));
 }
 
-pub fn exit_fmt(comptime fmt: anytype, args: anytype) result {
+pub fn exit_fmt(comptime fmt: anytype, args: anytype) error{Exit} {
     var buf: [1024]u8 = undefined;
     const msg = std.fmt.bufPrint(&buf, fmt, args) catch "FMTERROR";
     return set_error_msg(exit_message(msg, null));
