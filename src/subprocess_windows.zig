@@ -123,16 +123,13 @@ const Proc = struct {
     fn start(self: *Proc) tp.result {
         errdefer self.deinit();
 
-        self.child.spawn() catch |e| {
-            try self.parent.send(.{ self.tag, "term", e, 1 });
-            return tp.exit_normal();
-        };
+        self.child.spawn() catch |e| return self.handle_error(e);
         _ = self.args.reset(.free_all);
 
-        self.stream_stdout = tp.file_stream.init("stdout", self.child.stdout.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.stream_stderr = tp.file_stream.init("stderr", self.child.stderr.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        if (self.stream_stdout) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        if (self.stream_stderr) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+        self.stream_stdout = tp.file_stream.init("stdout", self.child.stdout.?.handle) catch |e| return self.handle_error(e);
+        self.stream_stderr = tp.file_stream.init("stderr", self.child.stderr.?.handle) catch |e| return self.handle_error(e);
+        if (self.stream_stdout) |stream| stream.start_read() catch |e| return self.handle_error(e);
+        if (self.stream_stderr) |stream| stream.start_read() catch |e| return self.handle_error(e);
 
         tp.receive(&self.receiver);
     }
@@ -145,10 +142,10 @@ const Proc = struct {
         var err_msg: []u8 = "";
         if (try m.match(.{ "stream", "stdout", "read_complete", tp.extract(&bytes) })) {
             try self.dispatch_stdout(bytes);
-            if (self.stream_stdout) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            if (self.stream_stdout) |stream| stream.start_read() catch |e| return self.handle_error(e);
         } else if (try m.match(.{ "stream", "stderr", "read_complete", tp.extract(&bytes) })) {
             try self.dispatch_stderr(bytes);
-            if (self.stream_stderr) |stream| stream.start_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            if (self.stream_stderr) |stream| stream.start_read() catch |e| return self.handle_error(e);
         } else if (try m.match(.{ "stdin", tp.extract(&bytes) })) {
             try self.start_write(bytes);
         } else if (try m.match(.{"stdin_close"})) {
@@ -164,7 +161,7 @@ const Proc = struct {
                 self.child.stderr = null;
             }
         } else if (try m.match(.{"term"})) {
-            const term_ = self.child.kill() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            const term_ = self.child.kill() catch |e| return self.handle_error(e);
             return self.handle_term(term_);
         } else if (try m.match(.{ "stream", "stdout", "read_error", 109, tp.extract(&err_msg) })) {
             // stdout closed
@@ -174,13 +171,14 @@ const Proc = struct {
             // stderr closed
             self.child.stderr = null;
         } else if (try m.match(.{ "stream", tp.extract(&stream_name), "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
-            return tp.exit_fmt("{s} read_error: {s}", .{ stream_name, err_msg });
+            try self.parent.send(.{ self.tag, "term", err_msg, 1 });
+            return tp.exit_normal();
         }
     }
 
     fn start_write(self: *Proc, bytes: []const u8) tp.result {
         if (self.child.stdin) |stdin|
-            stdin.writeAll(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
+            stdin.writeAll(bytes) catch |e| return self.handle_error(e);
     }
 
     fn stdin_close(self: *Proc) void {
@@ -203,17 +201,22 @@ const Proc = struct {
         try self.parent.send(.{ self.tag, "stderr", bytes });
     }
 
-    fn handle_terminate(self: *Proc) tp.result {
-        return self.handle_term(self.child.wait() catch |e| return tp.exit_error(e, @errorReturnTrace()));
+    fn handle_terminate(self: *Proc) error{Exit} {
+        return self.handle_term(self.child.wait() catch |e| return self.handle_error(e));
     }
 
-    fn handle_term(self: *Proc, term_: std.process.Child.Term) tp.result {
+    fn handle_term(self: *Proc, term_: std.process.Child.Term) error{Exit} {
         (switch (term_) {
             .Exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
             .Signal => |val| self.parent.send(.{ self.tag, "term", "signal", val }),
             .Stopped => |val| self.parent.send(.{ self.tag, "term", "stop", val }),
             .Unknown => |val| self.parent.send(.{ self.tag, "term", "unknown", val }),
         }) catch {};
+        return tp.exit_normal();
+    }
+
+    fn handle_error(self: *Proc, e: anyerror) error{Exit} {
+        try self.parent.send(.{ self.tag, "term", e, 1 });
         return tp.exit_normal();
     }
 };

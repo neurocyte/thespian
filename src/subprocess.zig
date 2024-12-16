@@ -130,18 +130,15 @@ const Proc = struct {
     fn start(self: *Proc) tp.result {
         errdefer self.deinit();
 
-        self.child.spawn() catch |e| {
-            try self.parent.send(.{ self.tag, "term", e, 1 });
-            return tp.exit_normal();
-        };
+        self.child.spawn() catch |e| return self.handle_error(e);
         _ = self.args.reset(.free_all);
 
         if (self.child.stdin_behavior == .Pipe)
-            self.fd_stdin = tp.file_descriptor.init("stdin", self.child.stdin.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.fd_stdout = tp.file_descriptor.init("stdout", self.child.stdout.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        self.fd_stderr = tp.file_descriptor.init("stderr", self.child.stderr.?.handle) catch |e| return tp.exit_error(e, @errorReturnTrace());
-        if (self.fd_stdout) |fd_stdout| fd_stdout.wait_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
-        if (self.fd_stderr) |fd_stderr| fd_stderr.wait_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            self.fd_stdin = tp.file_descriptor.init("stdin", self.child.stdin.?.handle) catch |e| return self.handle_error(e);
+        self.fd_stdout = tp.file_descriptor.init("stdout", self.child.stdout.?.handle) catch |e| return self.handle_error(e);
+        self.fd_stderr = tp.file_descriptor.init("stderr", self.child.stderr.?.handle) catch |e| return self.handle_error(e);
+        if (self.fd_stdout) |fd_stdout| fd_stdout.wait_read() catch |e| return self.handle_error(e);
+        if (self.fd_stderr) |fd_stderr| fd_stderr.wait_read() catch |e| return self.handle_error(e);
 
         tp.receive(&self.receiver);
     }
@@ -153,22 +150,22 @@ const Proc = struct {
         var err_msg: []u8 = "";
         if (try m.match(.{ "fd", "stdout", "read_ready" })) {
             try self.dispatch_stdout();
-            if (self.fd_stdout) |fd_stdout| fd_stdout.wait_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            if (self.fd_stdout) |fd_stdout| fd_stdout.wait_read() catch |e| return self.handle_error(e);
         } else if (try m.match(.{ "fd", "stderr", "read_ready" })) {
             try self.dispatch_stderr();
-            if (self.fd_stderr) |fd_stderr| fd_stderr.wait_read() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            if (self.fd_stderr) |fd_stderr| fd_stderr.wait_read() catch |e| return self.handle_error(e);
         } else if (try m.match(.{ "fd", "stdin", "write_ready" })) {
             if (self.stdin_buffer.items.len > 0) {
                 if (self.child.stdin) |stdin| {
                     const written = stdin.write(self.stdin_buffer.items) catch |e| switch (e) {
                         error.WouldBlock => {
                             if (self.fd_stdin) |fd_stdin| {
-                                fd_stdin.wait_write() catch |e_| return tp.exit_error(e_, @errorReturnTrace());
+                                fd_stdin.wait_write() catch |e_| return self.handle_error(e_);
                                 self.write_pending = true;
                                 return;
-                            } else return tp.exit_error(error.WouldBlock, @errorReturnTrace());
+                            } else return self.handle_error(error.WouldBlock);
                         },
-                        else => return tp.exit_error(e, @errorReturnTrace()),
+                        else => return self.handle_error(e),
                     };
                     self.write_pending = false;
                     defer {
@@ -181,7 +178,7 @@ const Proc = struct {
                         std.mem.copyForwards(u8, self.stdin_buffer.items, self.stdin_buffer.items[written..]);
                         self.stdin_buffer.items.len = self.stdin_buffer.items.len - written;
                         if (self.fd_stdin) |fd_stdin| {
-                            fd_stdin.wait_write() catch |e| return tp.exit_error(e, @errorReturnTrace());
+                            fd_stdin.wait_write() catch |e| return self.handle_error(e);
                             self.write_pending = true;
                         }
                     }
@@ -189,8 +186,8 @@ const Proc = struct {
             }
         } else if (try m.match(.{ "stdin", tp.extract(&bytes) })) {
             if (self.fd_stdin) |fd_stdin| {
-                self.stdin_buffer.appendSlice(bytes) catch |e| return tp.exit_error(e, @errorReturnTrace());
-                fd_stdin.wait_write() catch |e| return tp.exit_error(e, @errorReturnTrace());
+                self.stdin_buffer.appendSlice(bytes) catch |e| return self.handle_error(e);
+                fd_stdin.wait_write() catch |e| return self.handle_error(e);
                 self.write_pending = true;
             }
         } else if (try m.match(.{"stdin_close"})) {
@@ -210,10 +207,11 @@ const Proc = struct {
                 self.child.stderr = null;
             }
         } else if (try m.match(.{"term"})) {
-            const term_ = self.child.kill() catch |e| return tp.exit_error(e, @errorReturnTrace());
+            const term_ = self.child.kill() catch |e| return self.handle_error(e);
             return self.handle_term(term_);
         } else if (try m.match(.{ "fd", tp.any, "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
-            return tp.exit(err_msg);
+            try self.parent.send(.{ self.tag, "term", err_msg, 1 });
+            return tp.exit_normal();
         }
     }
 
@@ -227,10 +225,10 @@ const Proc = struct {
 
     fn dispatch_stdout(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
-        const stdout = self.child.stdout orelse return tp.exit("cannot read closed stdout");
+        const stdout = self.child.stdout orelse return self.handle_error(error.ReadNoStdout);
         const bytes = stdout.read(&buffer) catch |e| switch (e) {
             error.WouldBlock => return,
-            else => return tp.exit_error(e, @errorReturnTrace()),
+            else => return self.handle_error(e),
         };
         if (bytes == 0)
             return self.handle_terminate();
@@ -239,27 +237,32 @@ const Proc = struct {
 
     fn dispatch_stderr(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
-        const stderr = self.child.stderr orelse return tp.exit("cannot read closed stderr");
+        const stderr = self.child.stderr orelse return self.handle_error(error.ReadNoStderr);
         const bytes = stderr.read(&buffer) catch |e| switch (e) {
             error.WouldBlock => return,
-            else => return tp.exit_error(e, @errorReturnTrace()),
+            else => return self.handle_error(e),
         };
         if (bytes == 0)
             return;
         try self.parent.send(.{ self.tag, "stderr", buffer[0..bytes] });
     }
 
-    fn handle_terminate(self: *Proc) tp.result {
-        return self.handle_term(self.child.wait() catch |e| return tp.exit_error(e, @errorReturnTrace()));
+    fn handle_terminate(self: *Proc) error{Exit} {
+        return self.handle_term(self.child.wait() catch |e| return self.handle_error(e));
     }
 
-    fn handle_term(self: *Proc, term_: std.process.Child.Term) tp.result {
+    fn handle_term(self: *Proc, term_: std.process.Child.Term) error{Exit} {
         (switch (term_) {
             .Exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
             .Signal => |val| self.parent.send(.{ self.tag, "term", "signal", val }),
             .Stopped => |val| self.parent.send(.{ self.tag, "term", "stop", val }),
             .Unknown => |val| self.parent.send(.{ self.tag, "term", "unknown", val }),
         }) catch {};
+        return tp.exit_normal();
+    }
+
+    fn handle_error(self: *Proc, e: anyerror) error{Exit} {
+        try self.parent.send(.{ self.tag, "term", e, 1 });
         return tp.exit_normal();
     }
 };
