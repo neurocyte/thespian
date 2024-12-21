@@ -151,7 +151,7 @@ test "cbor.matchValue(i64) multi" {
     var buf: [128]u8 = undefined;
     const iter = fmt(&buf, 7);
     const iter2 = fmt(buf[iter.len..], 8);
-    var iter3 = buf[0 .. iter.len + iter2.len];
+    var iter3: []const u8 = buf[0 .. iter.len + iter2.len];
     try expect(try matchValue(&iter3, 7));
     try expect(try matchValue(&iter3, 8));
 }

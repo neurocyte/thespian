@@ -209,12 +209,12 @@ fn writeErrorset(writer: anytype, err: anyerror) @TypeOf(writer).Error!void {
 pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
-        .Int, .ComptimeInt => return if (T == u64) writeU64(writer, value) else writeI64(writer, @intCast(value)),
-        .Bool => return writeBool(writer, value),
-        .Optional => return if (value) |v| writeValue(writer, v) else writeNull(writer),
-        .ErrorUnion => return if (value) |v| writeValue(writer, v) else |err| writeValue(writer, err),
-        .ErrorSet => return writeErrorset(writer, value),
-        .Union => |info| {
+        .int, .comptime_int => return if (T == u64) writeU64(writer, value) else writeI64(writer, @intCast(value)),
+        .bool => return writeBool(writer, value),
+        .optional => return if (value) |v| writeValue(writer, v) else writeNull(writer),
+        .error_union => return if (value) |v| writeValue(writer, v) else |err| writeValue(writer, err),
+        .error_set => return writeErrorset(writer, value),
+        .@"union" => |info| {
             if (info.tag_type) |TagType| {
                 comptime var v = void;
                 inline for (info.fields) |u_field| {
@@ -230,7 +230,7 @@ pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
                 try writeArray(writer, .{@typeName(T)});
             }
         },
-        .Struct => |info| {
+        .@"struct" => |info| {
             if (info.is_tuple) {
                 if (info.fields.len == 0) return writeNull(writer);
                 try writeArrayHeader(writer, info.fields.len);
@@ -245,7 +245,7 @@ pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
                 }
             }
         },
-        .Pointer => |ptr_info| switch (ptr_info.size) {
+        .pointer => |ptr_info| switch (ptr_info.size) {
             .One => return writeValue(writer, value.*),
             .Many, .C => @compileError("cannot write type '" ++ @typeName(T) ++ "' to cbor stream"),
             .Slice => {
@@ -256,22 +256,22 @@ pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
                     try writeValue(writer, elem);
             },
         },
-        .Array => |info| {
+        .array => |info| {
             if (info.child == u8) return writeString(writer, &value);
             if (value.len == 0) return writeNull(writer);
             try writeArrayHeader(writer, value.len);
             for (value) |elem|
                 try writeValue(writer, elem);
         },
-        .Vector => |info| {
+        .vector => |info| {
             try writeArrayHeader(writer, info.len);
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
                 try writeValue(writer, value[i]);
             }
         },
-        .Null => try writeNull(writer),
-        .Float => |info| switch (info.bits) {
+        .null => try writeNull(writer),
+        .float => |info| switch (info.bits) {
             16 => try writeF16(writer, value),
             32 => try writeF32(writer, value),
             64 => try writeF64(writer, value),
@@ -380,7 +380,7 @@ fn decodeJsonObject(iter_: *[]const u8, minor: u5, obj: *json.ObjectMap) Error!b
     var iter = iter_.*;
     var n = try decodePInt(&iter, minor);
     while (n > 0) {
-        var key: []u8 = undefined;
+        var key: []const u8 = undefined;
         var value: json.Value = .null;
 
         if (!try matchString(&iter, &key))
@@ -642,21 +642,21 @@ pub fn matchValue(iter: *[]const u8, value: anytype) Error!bool {
     if (comptime isExtractor(T))
         return value.extract(iter);
     return switch (comptime @typeInfo(T)) {
-        .Int => return matchIntValue(T, iter, value),
-        .ComptimeInt => return matchIntValue(i64, iter, value),
-        .Bool => matchBoolValue(iter, value),
-        .Pointer => |info| switch (info.size) {
+        .int => return matchIntValue(T, iter, value),
+        .comptime_int => return matchIntValue(i64, iter, value),
+        .bool => matchBoolValue(iter, value),
+        .pointer => |info| switch (info.size) {
             .One => matchValue(iter, value.*),
             .Many, .C => matchError(T),
             .Slice => if (info.child == u8) matchStringValue(iter, value) else matchArray(iter, value, info),
         },
-        .Struct => |info| if (info.is_tuple)
+        .@"struct" => |info| if (info.is_tuple)
             matchArray(iter, value, info)
         else
             matchError(T),
-        .Array => |info| if (info.child == u8) matchStringValue(iter, &value) else matchArray(iter, value, info),
-        .Float => return matchFloatValue(T, iter, value),
-        .ComptimeFloat => matchFloatValue(f64, iter, value),
+        .array => |info| if (info.child == u8) matchStringValue(iter, &value) else matchArray(iter, value, info),
+        .float => return matchFloatValue(T, iter, value),
+        .comptime_float => matchFloatValue(f64, iter, value),
         else => @compileError("cannot match value type '" ++ @typeName(T) ++ "' to cbor stream"),
     };
 }
@@ -784,7 +784,7 @@ fn hasExtractorTag(info: anytype) bool {
 
 fn isExtractor(comptime T: type) bool {
     return comptime switch (@typeInfo(T)) {
-        .Struct => |info| hasExtractorTag(info),
+        .@"struct" => |info| hasExtractorTag(info),
         else => false,
     };
 }
@@ -837,15 +837,15 @@ fn Extractor(comptime T: type) type {
 
         pub fn extract(self: Self, iter: *[]const u8) Error!bool {
             switch (comptime @typeInfo(T)) {
-                .Int, .ComptimeInt => return matchInt(T, iter, self.dest),
-                .Bool => return matchBool(iter, self.dest),
-                .Pointer => |ptr_info| switch (ptr_info.size) {
+                .int, .comptime_int => return matchInt(T, iter, self.dest),
+                .bool => return matchBool(iter, self.dest),
+                .pointer => |ptr_info| switch (ptr_info.size) {
                     .Slice => {
                         if (ptr_info.child == u8) return matchString(iter, self.dest) else extractError(T);
                     },
                     else => extractError(T),
                 },
-                .Optional => |opt_info| {
+                .optional => |opt_info| {
                     var nested: opt_info.child = undefined;
                     const extractor = Extractor(opt_info.child).init(&nested);
                     if (try extractor.extract(iter)) {
@@ -854,7 +854,7 @@ fn Extractor(comptime T: type) type {
                     }
                     return false;
                 },
-                .Float => return matchFloat(T, iter, self.dest),
+                .float => return matchFloat(T, iter, self.dest),
                 else => extractError(T),
             }
         }
@@ -863,8 +863,8 @@ fn Extractor(comptime T: type) type {
 
 fn ExtractorType(comptime T: type) type {
     const T_type_info = @typeInfo(T);
-    if (T_type_info != .Pointer) @compileError("extract requires a pointer argument");
-    return Extractor(T_type_info.Pointer.child);
+    if (T_type_info != .pointer) @compileError("extract requires a pointer argument");
+    return Extractor(T_type_info.pointer.child);
 }
 
 pub fn extract(dest: anytype) ExtractorType(@TypeOf(dest)) {

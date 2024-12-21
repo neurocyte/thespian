@@ -138,7 +138,7 @@ pub const message = struct {
     pub fn fmt(value: anytype) Self {
         message_buffer.clearRetainingCapacity();
         const f = comptime switch (@typeInfo(@TypeOf(value))) {
-            .Struct => |info| if (info.is_tuple)
+            .@"struct" => |info| if (info.is_tuple)
                 fmt_internal
             else
                 @compileError("thespian.message template should be a tuple: " ++ @typeName(@TypeOf(value))),
@@ -158,7 +158,7 @@ pub const message = struct {
 
     pub fn fmtbuf(buf: []u8, value: anytype) !Self {
         const f = comptime switch (@typeInfo(@TypeOf(value))) {
-            .Struct => |info| if (info.is_tuple)
+            .@"struct" => |info| if (info.is_tuple)
                 fmtbuf_internal
             else
                 @compileError("thespian.message template should be a tuple: " ++ @typeName(@TypeOf(value))),
@@ -217,14 +217,14 @@ pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {
         defer debug_info_arena_allocator.deinit();
         const a = debug_info_arena_allocator.allocator();
         var out = std.ArrayList(u8).init(a);
-        store_stack_trace(a, stack_trace_.*, out.writer());
+        store_stack_trace(stack_trace_.*, out.writer());
         return message.fmtbuf(&error_message_buffer, .{ "exit", e, out.items }) catch unreachable;
     } else {
         return message.fmtbuf(&error_message_buffer, .{ "exit", e }) catch unreachable;
     }
 }
 
-fn store_stack_trace(a: std.mem.Allocator, stack_trace: std.builtin.StackTrace, writer: anytype) void {
+fn store_stack_trace(stack_trace: std.builtin.StackTrace, writer: anytype) void {
     nosuspend {
         if (builtin.strip_debug_info) {
             writer.print("Unable to store stack trace: debug info stripped\n", .{}) catch return;
@@ -234,7 +234,7 @@ fn store_stack_trace(a: std.mem.Allocator, stack_trace: std.builtin.StackTrace, 
             writer.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        std.debug.writeStackTrace(stack_trace, writer, a, debug_info, .no_color) catch |err| {
+        std.debug.writeStackTrace(stack_trace, writer, debug_info, .no_color) catch |err| {
             writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
