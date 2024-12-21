@@ -40,8 +40,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     if (tracy_enabled) {
-        lib.defineCMacro("TRACY_ENABLE", null);
-        lib.defineCMacro("TRACY_CALLSTACK", null);
+        lib.root_module.addCMacro("TRACY_ENABLE", "1");
+        lib.root_module.addCMacro("TRACY_CALLSTACK", "1");
     }
     lib.addIncludePath(b.path("src"));
     lib.addIncludePath(b.path("include"));
