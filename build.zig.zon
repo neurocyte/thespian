@@ -4,12 +4,12 @@
 
     .dependencies = .{
         .asio = .{
-            .url = "https://github.com/neurocyte/asio/archive/b9c9c23ef2e6f11b6123535ec33e5a23ed0c59da.tar.gz",
-            .hash = "1220c85e0d9438ec518849c84e3ea66633a0e191e49c4ae4bbb3bc46626cd8dfad75",
+            .url = "https://github.com/neurocyte/asio/archive/8cc76c9ed4054f45bfc06476d795477096aab7a5.tar.gz",
+            .hash = "12206a4050ebb2e2bf84ed477ea5fe0d0325f9292eef2cb8bd47ccda75a9b3d93516",
         },
         .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/58999b786089e5319dd0707f6afbfca04c6340e7.tar.gz",
-            .hash = "1220a2c8f8db1b5265458ac967ea1f7cc0a8ddcd1d774df3b73d86c4f529aadbfb94",
+            .url = "https://github.com/neurocyte/zig-tracy/archive/80b914d2391209de9ed5a1fd6f440642df55cbd4.tar.gz",
+            .hash = "1220351c8410936854e3baa10aa7bbe775196b3974a3d670808bebbab00631439285",
         },
     },
     .paths = .{
