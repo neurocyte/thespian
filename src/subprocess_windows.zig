@@ -127,7 +127,9 @@ const Proc = struct {
         _ = self.args.reset(.free_all);
 
         self.stream_stdout = tp.file_stream.init("stdout", self.child.stdout.?.handle) catch |e| return self.handle_error(e);
+        self.child.stdout = null; // ownership transferred
         self.stream_stderr = tp.file_stream.init("stderr", self.child.stderr.?.handle) catch |e| return self.handle_error(e);
+        self.child.stderr = null; // ownership transferred
         if (self.stream_stdout) |stream| stream.start_read() catch |e| return self.handle_error(e);
         if (self.stream_stderr) |stream| stream.start_read() catch |e| return self.handle_error(e);
 
