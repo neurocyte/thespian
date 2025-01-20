@@ -6,7 +6,6 @@
 
 #include <chrono>
 #include <memory>
-#include <string>
 
 using cbor::buffer;
 using std::move;
@@ -64,7 +63,9 @@ auto initA() {
     }
   };
   shared_ptr<state_t> state{new state_t};
-  receive([state](auto, auto m) mutable { return state->receive(m); });
+  receive([state](const auto &, const auto &m) mutable {
+    return state->receive(m);
+  });
   return ok();
 }
 

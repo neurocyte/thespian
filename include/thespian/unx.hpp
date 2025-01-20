@@ -2,11 +2,10 @@
 
 #include <memory>
 #include <string_view>
-#include <vector>
 
 namespace thespian::unx {
 
-enum class mode { file, abstract };
+enum class mode : uint8_t { file, abstract };
 
 struct acceptor_impl;
 using acceptor_dtor = void (*)(acceptor_impl *);

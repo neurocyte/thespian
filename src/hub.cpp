@@ -91,7 +91,7 @@ struct hub_impl {
       set<string> msgs;
       for (const auto val : r)
         msgs.insert(string(val));
-      subscribers_.emplace_back(move(from), [msgs](auto m) {
+      subscribers_.emplace_back(move(from), [msgs](const auto &m) {
         string tag;
         return m(extract(tag), more) && (msgs.find(tag) != msgs.end());
       });

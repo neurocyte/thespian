@@ -481,11 +481,11 @@ namespace unx {
 
 struct socket_impl {
   explicit socket_impl(strand &strand)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, socket_{
-                                                                *ctx->asio} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        socket_{*ctx->asio} {}
   explicit socket_impl(strand &strand, int fd)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, socket_{*ctx->asio,
-                                                                    fd} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        socket_{*ctx->asio, fd} {}
   auto bind(string_view path) -> error_code {
     error_code ec;
     ec = socket_.bind(path, ec);
@@ -615,8 +615,8 @@ namespace file_descriptor {
 
 struct watcher_impl {
   explicit watcher_impl(strand &strand, int fd)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, fd_{*ctx->asio,
-                                                                fd} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        fd_{*ctx->asio, fd} {}
 
   void wait_read(watcher::handler h) {
     if (!read_in_progress_) {
@@ -680,8 +680,8 @@ struct file_stream_impl {
   explicit file_stream_impl(
       strand &strand,
       const asio::windows::stream_handle::native_handle_type &handle)
-      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_}, handle_{*ctx->asio,
-                                                                    handle} {}
+      : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
+        handle_{*ctx->asio, handle} {}
 
   void start_read(file_stream::read_handler h) {
     if (!read_in_progress_) {

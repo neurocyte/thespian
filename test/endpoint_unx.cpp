@@ -91,8 +91,9 @@ auto endpoint_unx(context &ctx, bool &result, env_t env_) -> ::result {
       [path]() {
         link(env().proc("log"));
         handle ep_listen = listen(path).value();
-        receive([p{make_shared<controller>(ep_listen)}](auto from, auto m) {
-          return p->receive(move(from), move(m));
+        receive([p{make_shared<controller>(ep_listen)}](const auto &from,
+                                                        const auto &m) {
+          return p->receive(from, m);
         });
         return ok();
       },

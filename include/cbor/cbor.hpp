@@ -17,7 +17,7 @@ constexpr auto cbor_magic_false = 0xf4;
 constexpr auto cbor_magic_type_array = 4;
 constexpr auto cbor_magic_type_map = 5;
 
-enum class type {
+enum class type : uint8_t {
   number,
   bytes,
   string,
@@ -326,7 +326,7 @@ public:
     }
     auto operator*() -> value_accessor {
       if (n)
-        return {b, e};
+        return {.b = b, .e = e};
       throw std::out_of_range("cbor iterator out of range");
     }
   };
@@ -337,10 +337,10 @@ public:
     auto b = raw_cbegin();
     auto e = raw_cend();
     auto n = decode_range_header(b, e);
-    return {b, e, n};
+    return {.b = b, .e = e, .n = n};
   }
   [[nodiscard]] auto end() const -> value_iterator {
-    return {raw_cend(), raw_cend()};
+    return {.b = raw_cend(), .e = raw_cend()};
   }
 
   class range {
@@ -355,10 +355,10 @@ public:
       auto b = raw_cbegin();
       auto e = raw_cend();
       auto n = decode_range_header(b, e);
-      return {b, e, n};
+      return {.b = b, .e = e, .n = n};
     }
     [[nodiscard]] auto end() const -> value_iterator {
-      return {raw_cend(), raw_cend()};
+      return {.b = raw_cend(), .e = raw_cend()};
     }
 
     auto is_null() -> bool {

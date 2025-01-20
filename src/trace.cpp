@@ -91,6 +91,7 @@ template <typename T, typename Q> struct trace_file {
   }
 };
 
+namespace {
 auto to_mermaid(ostream &s, const buffer &m) -> void {
   string_view from;
   string_view typ;
@@ -124,6 +125,7 @@ auto to_mermaid(ostream &s, const buffer &m) -> void {
       s << "    Note right of " << from << ": EXIT " << msg << '\n';
   }
 }
+} // namespace
 
 static const auto cbor_cr = array("\n");
 

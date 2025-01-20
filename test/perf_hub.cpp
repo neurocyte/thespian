@@ -35,7 +35,7 @@ using clk = std::chrono::system_clock;
 
 namespace {
 
-enum class tag {
+enum class tag : uint8_t {
   ready = 1,
   done = 2,
 };

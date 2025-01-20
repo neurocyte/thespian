@@ -10,8 +10,8 @@
 #if !defined(_WIN32)
 #include <netinet/in.h>
 #else
-#include <winsock2.h>
 #include <in6addr.h>
+#include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
 #endif
@@ -80,7 +80,9 @@ struct client_connection {
         [fd, connector]() {
           ::thespian::receive(
               [p{make_shared<client_connection>(fd, connector)}](
-                  auto /*from*/, auto m) { return p->receive(move(m)); });
+                  const auto & /*from*/, const auto &m) {
+                return p->receive(m);
+              });
           return ok();
         },
         "client_connection");
@@ -111,9 +113,8 @@ struct client {
 
   static auto init(handle server, port_t server_port) -> result {
     ::thespian::receive(
-        [p{make_shared<client>(server, server_port)}](auto /*from*/, auto m) {
-          return p->receive(move(m));
-        });
+        [p{make_shared<client>(server, server_port)}](
+            const auto & /*from*/, const auto &m) { return p->receive(m); });
     return ok();
   }
 };
@@ -155,9 +156,10 @@ struct server_connection {
   [[nodiscard]] static auto init(int fd, const handle &server) {
     return spawn_link(
         [fd, server]() {
-          ::thespian::receive(
-              [p{make_shared<server_connection>(fd, server)}](
-                  auto /*from*/, auto m) { return p->receive(move(m)); });
+          ::thespian::receive([p{make_shared<server_connection>(fd, server)}](
+                                  const auto & /*from*/, const auto &m) {
+            return p->receive(m);
+          });
           return ok();
         },
         "server_connection");
@@ -210,7 +212,7 @@ struct server {
     if (not ret)
       return to_result(ret);
     thespian::receive(
-        [p](auto /*from*/, auto m) { return p->receive(move(m)); });
+        [p](const auto & /*from*/, const auto &m) { return p->receive(m); });
     return ok();
   }
 };

@@ -12,8 +12,8 @@
 #include <utility>
 
 #if defined(_WIN32)
-#include <winsock2.h>
 #include <in6addr.h>
+#include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
 #endif
@@ -86,8 +86,9 @@ auto endpoint_tcp(context &ctx, bool &result, env_t env_) -> ::result {
         if (not ret)
           return ret;
 
-        receive([p{make_shared<controller>(ep_listen)}](auto from, auto m) {
-          return p->receive(move(from), move(m));
+        receive([p{make_shared<controller>(ep_listen)}](const auto &from,
+                                                        const auto &m) {
+          return p->receive(from, m);
         });
         return ok();
       },

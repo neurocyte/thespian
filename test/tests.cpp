@@ -67,7 +67,7 @@ struct logger {
             [name, &trace_m, verbose]() {
               thespian::receive(
                   [p{make_shared<logger>(name, trace_m, verbose)}](
-                      auto, auto m) { return p->receive(move(m)); });
+                      const auto &, const auto &m) { return p->receive(m); });
               return ok();
             },
             string("logger_") + name, move(env))

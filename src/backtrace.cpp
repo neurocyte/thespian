@@ -8,6 +8,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+namespace {
 static void msg(const char *msg, const char *arg) {
   if (write(STDERR_FILENO, msg, strlen(msg)) != 0) {
   }
@@ -46,7 +47,7 @@ static auto get_debugger() -> const char * {
 }
 const char *const debugger = get_debugger();
 
-void start_debugger(const char * dbg, const char **argv) {
+void start_debugger(const char *dbg, const char **argv) {
 #if defined(PR_SET_PTRACER)
   prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY, 0, 0, 0); // NOLINT
 #endif
@@ -61,6 +62,7 @@ void start_debugger(const char * dbg, const char **argv) {
     waitpid(child_pid, &stat, 0);
   }
 }
+} // namespace
 
 extern "C" void sighdl_debugger(int no, siginfo_t * /*sigi*/, void * /*uco*/) {
   get_pid_binpath();
@@ -73,14 +75,15 @@ extern "C" void sighdl_debugger(int no, siginfo_t * /*sigi*/, void * /*uco*/) {
 extern "C" void sighdl_backtrace(int no, siginfo_t * /*sigi*/, void * /*uco*/) {
   get_pid_binpath();
   const char *argv[] = {// NOLINT
-                        lldb,     "--batch", "-p",    pid_s,
+                        lldb,         "--batch", "-p",    pid_s,
                         "--one-line", "bt",      binpath, nullptr};
   start_debugger(lldb, argv);
   (void)raise(no);
 }
 
+namespace {
 static void install_crash_handler(void (*hdlr)(int, siginfo_t *, void *)) {
-  struct sigaction action {};
+  struct sigaction action{};
   sigemptyset(&action.sa_mask);
   action.sa_flags = SA_SIGINFO | SA_RESETHAND;
 #ifdef SA_FULLDUMP
@@ -93,6 +96,7 @@ static void install_crash_handler(void (*hdlr)(int, siginfo_t *, void *)) {
   sigaction(SIGTRAP, &action, nullptr);
   sigaction(SIGFPE, &action, nullptr);
 }
+} // namespace
 
 extern "C" void install_debugger() { install_crash_handler(sighdl_debugger); }
 extern "C" void install_backtrace() { install_crash_handler(sighdl_backtrace); }
