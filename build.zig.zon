@@ -8,8 +8,8 @@
             .hash = "1220c85e0d9438ec518849c84e3ea66633a0e191e49c4ae4bbb3bc46626cd8dfad75",
         },
         .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/58999b786089e5319dd0707f6afbfca04c6340e7.tar.gz",
-            .hash = "1220a2c8f8db1b5265458ac967ea1f7cc0a8ddcd1d774df3b73d86c4f529aadbfb94",
+            .url = "https://github.com/neurocyte/zig-tracy/archive/e04e31c64498149a324491b8534758e6af43a5c2.tar.gz",
+            .hash = "1220d0fb2bff7b453dbb39d1db3eb472b6680e2564f2b23b0e947671be47bbdd188f",
         },
     },
     .paths = .{
