@@ -207,6 +207,10 @@ pub const message = struct {
     pub fn match(self: Self, m: anytype) error{Exit}!bool {
         return if (cbor.match(self.buf, m)) |ret| ret else |e| exit_error(e, @errorReturnTrace());
     }
+
+    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        return cbor.toJsonWriter(self.buf, writer, .{});
+    }
 };
 
 pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {

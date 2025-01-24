@@ -897,8 +897,11 @@ pub fn extract_cbor(dest: *[]const u8) CborExtractor {
 }
 
 pub fn JsonStream(comptime T: type) type {
+    return JsonStreamWriter(T.Writer);
+}
+
+pub fn JsonStreamWriter(comptime Writer: type) type {
     return struct {
-        const Writer = T.Writer;
         const JsonWriter = json.WriteStream(Writer, .{ .checked_to_fixed_depth = 256 });
 
         fn jsonWriteArray(w: *JsonWriter, iter: *[]const u8, minor: u5) !void {
@@ -952,6 +955,12 @@ pub fn toJson(cbor_buf: []const u8, json_buf: []u8) (JsonEncodeError || error{No
     var iter: []const u8 = cbor_buf;
     try JsonStream(@TypeOf(fbs)).jsonWriteValue(&s, &iter);
     return fbs.getWritten();
+}
+
+pub fn toJsonWriter(cbor_buf: []const u8, writer: anytype, options: std.json.StringifyOptions) !void {
+    var s = json.writeStream(writer, options);
+    var iter: []const u8 = cbor_buf;
+    try JsonStreamWriter(@TypeOf(writer)).jsonWriteValue(&s, &iter);
 }
 
 pub fn toJsonAlloc(a: std.mem.Allocator, cbor_buf: []const u8) (JsonEncodeError)![]const u8 {
