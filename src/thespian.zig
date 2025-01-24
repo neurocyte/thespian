@@ -427,7 +427,8 @@ pub fn trace(chan: trace_channel, value: anytype) void {
             env.get().trace(value.to(message.c_buffer_type));
         } else {
             var trace_buffer: [512]u8 = undefined;
-            const m = message.fmtbuf(&trace_buffer, value);
+            const m = message.fmtbuf(&trace_buffer, value) catch |e|
+                std.debug.panic("TRACE ERROR: {}", .{e});
             env.get().trace(m.to(message.c_buffer_type));
         }
     }
