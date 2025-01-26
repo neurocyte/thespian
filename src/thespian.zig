@@ -336,6 +336,7 @@ pub const channel = struct {
     pub const event: c.thespian_trace_channel = 2048;
     pub const widget: c.thespian_trace_channel = 4096;
     pub const input: c.thespian_trace_channel = 8192;
+    pub const debug: c.thespian_trace_channel = 16384;
     pub const all = c.thespian_trace_channel_all;
 };
 
