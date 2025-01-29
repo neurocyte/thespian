@@ -522,6 +522,21 @@ fn matchFloatValue(comptime T: type, iter: *[]const u8, val: T) Error!bool {
     return if (try matchFloat(T, iter, &v)) v == val else false;
 }
 
+pub fn matchEnum(comptime T: type, iter_: *[]const u8, val: *T) Error!bool {
+    var iter = iter_.*;
+    var str: []const u8 = undefined;
+    if (try matchString(&iter, &str)) if (std.meta.stringToEnum(T, str)) |val_| {
+        val.* = val_;
+        iter_.* = iter;
+        return true;
+    };
+    return false;
+}
+
+fn matchEnumValue(comptime T: type, iter: *[]const u8, val: T) Error!bool {
+    return matchStringValue(iter, @tagName(val));
+}
+
 fn skipString(iter: *[]const u8, minor: u5) Error!void {
     const len: usize = @intCast(try decodePInt(iter, minor));
     if (iter.len < len)
@@ -657,6 +672,7 @@ pub fn matchValue(iter: *[]const u8, value: anytype) Error!bool {
         .Array => |info| if (info.child == u8) matchStringValue(iter, &value) else matchArray(iter, value, info),
         .Float => return matchFloatValue(T, iter, value),
         .ComptimeFloat => matchFloatValue(f64, iter, value),
+        .Enum => matchEnumValue(T, iter, value),
         else => @compileError("cannot match value type '" ++ @typeName(T) ++ "' to cbor stream"),
     };
 }
@@ -855,6 +871,7 @@ fn Extractor(comptime T: type) type {
                     return false;
                 },
                 .Float => return matchFloat(T, iter, self.dest),
+                .Enum => return matchEnum(T, iter, self.dest),
                 else => extractError(T),
             }
         }
