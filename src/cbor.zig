@@ -522,6 +522,21 @@ fn matchFloatValue(comptime T: type, iter: *[]const u8, val: T) Error!bool {
     return if (try matchFloat(T, iter, &v)) v == val else false;
 }
 
+pub fn matchEnum(comptime T: type, iter_: *[]const u8, val: *T) Error!bool {
+    var iter = iter_.*;
+    var str: []const u8 = undefined;
+    if (try matchString(&iter, &str)) if (std.meta.stringToEnum(T, str)) |val_| {
+        val.* = val_;
+        iter_.* = iter;
+        return true;
+    };
+    return false;
+}
+
+fn matchEnumValue(comptime T: type, iter: *[]const u8, val: T) Error!bool {
+    return matchStringValue(iter, @tagName(val));
+}
+
 fn skipString(iter: *[]const u8, minor: u5) Error!void {
     const len: usize = @intCast(try decodePInt(iter, minor));
     if (iter.len < len)
@@ -655,8 +670,9 @@ pub fn matchValue(iter: *[]const u8, value: anytype) Error!bool {
         else
             matchError(T),
         .array => |info| if (info.child == u8) matchStringValue(iter, &value) else matchArray(iter, value, info),
-        .float => return matchFloatValue(T, iter, value),
+        .float => matchFloatValue(T, iter, value),
         .comptime_float => matchFloatValue(f64, iter, value),
+        .@"enum" => matchEnumValue(T, iter, value),
         else => @compileError("cannot match value type '" ++ @typeName(T) ++ "' to cbor stream"),
     };
 }
@@ -855,6 +871,7 @@ fn Extractor(comptime T: type) type {
                     return false;
                 },
                 .float => return matchFloat(T, iter, self.dest),
+                .@"enum" => return matchEnum(T, iter, self.dest),
                 else => extractError(T),
             }
         }
@@ -897,8 +914,11 @@ pub fn extract_cbor(dest: *[]const u8) CborExtractor {
 }
 
 pub fn JsonStream(comptime T: type) type {
+    return JsonStreamWriter(T.Writer);
+}
+
+pub fn JsonStreamWriter(comptime Writer: type) type {
     return struct {
-        const Writer = T.Writer;
         const JsonWriter = json.WriteStream(Writer, .{ .checked_to_fixed_depth = 256 });
 
         fn jsonWriteArray(w: *JsonWriter, iter: *[]const u8, minor: u5) !void {
@@ -952,6 +972,12 @@ pub fn toJson(cbor_buf: []const u8, json_buf: []u8) (JsonEncodeError || error{No
     var iter: []const u8 = cbor_buf;
     try JsonStream(@TypeOf(fbs)).jsonWriteValue(&s, &iter);
     return fbs.getWritten();
+}
+
+pub fn toJsonWriter(cbor_buf: []const u8, writer: anytype, options: std.json.StringifyOptions) !void {
+    var s = json.writeStream(writer, options);
+    var iter: []const u8 = cbor_buf;
+    try JsonStreamWriter(@TypeOf(writer)).jsonWriteValue(&s, &iter);
 }
 
 pub fn toJsonAlloc(a: std.mem.Allocator, cbor_buf: []const u8) (JsonEncodeError)![]const u8 {

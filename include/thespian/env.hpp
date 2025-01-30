@@ -3,7 +3,6 @@
 #include "handle.hpp"
 #include "trace.hpp"
 
-#include <any>
 #include <cstddef>
 #include <map>
 

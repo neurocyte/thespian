@@ -4,7 +4,6 @@
 #include <thespian/env.hpp>
 
 #include <cstdlib>
-#include <string_view>
 
 constexpr auto check(bool expression) -> void {
   if (!expression)
@@ -12,7 +11,7 @@ constexpr auto check(bool expression) -> void {
 }
 
 using testcase = auto(thespian::context &ctx, bool &result, thespian::env_t env)
-                     -> thespian::result;
+    -> thespian::result;
 
 testcase cbor_match;
 testcase debug;

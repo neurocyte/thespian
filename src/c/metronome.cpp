@@ -14,8 +14,7 @@ using thespian::stop_metronome;
 
 extern "C" {
 
-auto thespian_metronome_create_ms(uint64_t ms)
-    -> thespian_metronome_handle * {
+auto thespian_metronome_create_ms(uint64_t ms) -> thespian_metronome_handle * {
   try {
     auto *handle = thespian::create_metronome(milliseconds(ms)).ref.release();
     return reinterpret_cast<thespian_metronome_handle *>(handle); // NOLINT
@@ -27,8 +26,7 @@ auto thespian_metronome_create_ms(uint64_t ms)
     return nullptr;
   }
 }
-auto thespian_metronome_create_us(uint64_t us)
-    -> thespian_metronome_handle * {
+auto thespian_metronome_create_us(uint64_t us) -> thespian_metronome_handle * {
   try {
     auto *handle = thespian::create_metronome(microseconds(us)).ref.release();
     return reinterpret_cast<thespian_metronome_handle *>(handle); // NOLINT

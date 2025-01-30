@@ -207,6 +207,10 @@ pub const message = struct {
     pub fn match(self: Self, m: anytype) error{Exit}!bool {
         return if (cbor.match(self.buf, m)) |ret| ret else |e| exit_error(e, @errorReturnTrace());
     }
+
+    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        return cbor.toJsonWriter(self.buf, writer, .{});
+    }
 };
 
 pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {
@@ -332,6 +336,7 @@ pub const channel = struct {
     pub const event: c.thespian_trace_channel = 2048;
     pub const widget: c.thespian_trace_channel = 4096;
     pub const input: c.thespian_trace_channel = 8192;
+    pub const debug: c.thespian_trace_channel = 16384;
     pub const all = c.thespian_trace_channel_all;
 };
 
@@ -423,7 +428,8 @@ pub fn trace(chan: trace_channel, value: anytype) void {
             env.get().trace(value.to(message.c_buffer_type));
         } else {
             var trace_buffer: [512]u8 = undefined;
-            const m = message.fmtbuf(&trace_buffer, value);
+            const m = message.fmtbuf(&trace_buffer, value) catch |e|
+                std.debug.panic("TRACE ERROR: {}", .{e});
             env.get().trace(m.to(message.c_buffer_type));
         }
     }

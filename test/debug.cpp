@@ -11,8 +11,8 @@
 #include <memory>
 
 #if defined(_WIN32)
-#include <winsock2.h>
 #include <in6addr.h>
+#include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
 #endif
@@ -60,9 +60,10 @@ struct debuggee {
   static auto start() -> expected<handle, error> {
     return spawn_link(
         [=]() {
-          ::receive([p{make_shared<debuggee>()}](auto from, auto m) {
-            return p->receive(move(from), move(m));
-          });
+          ::receive(
+              [p{make_shared<debuggee>()}](const auto &from, const auto &m) {
+                return p->receive(from, m);
+              });
           return ok();
         },
         "debuggee");
@@ -188,9 +189,9 @@ auto debug(context &ctx, bool &result, env_t env_) -> ::result {
         ret2 = debuggee.send("ping");
         if (not ret2)
           return ret2;
-        receive([p{make_shared<controller>(debug_tcp, debuggee)}](auto from,
-                                                                  auto m) {
-          return p->receive(move(from), move(m));
+        receive([p{make_shared<controller>(debug_tcp, debuggee)}](
+                    const auto &from, const auto &m) {
+          return p->receive(from, m);
         });
         return ok();
       },

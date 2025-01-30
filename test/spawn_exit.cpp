@@ -34,7 +34,7 @@ auto initE() {
   auto ret = env().proc("A").send("shutdown");
   if (not ret)
     return ret;
-  receive([](auto, auto) { return ok(); });
+  receive([](const auto &, const auto &) { return ok(); });
   return ok();
 }
 
@@ -42,7 +42,7 @@ auto initD() {
   auto ret = spawn(initE, "E");
   if (not ret)
     return to_result(ret);
-  receive([](auto, auto m) {
+  receive([](const auto &, const auto &m) {
     if (m("die"))
       return exit("died");
     return unexpected(m);
@@ -56,7 +56,7 @@ auto initC() {
   if (not ret)
     return to_result(ret);
   trap(true);
-  receive([](auto /*from*/, auto m) {
+  receive([](const auto & /*from*/, const auto &m) {
     if (m("exit", "died"))
       return exit();
     return unexpected(m);
@@ -66,7 +66,7 @@ auto initC() {
 
 auto initB() {
   env().str("initBsays") = "noyoudont";
-  receive([](auto from, auto m) {
+  receive([](const auto &from, const auto &m) {
     if (m("shutdown")) {
       auto ret = from.send("done");
       if (not ret)
@@ -87,7 +87,7 @@ auto initA() {
   if (not ret)
     return ret;
   spawn_link(initC, "C").value();
-  receive([i{0}](auto, auto m) mutable {
+  receive([i{0}](const auto &, const auto &m) mutable {
     if (m("shutdown") || m("done"))
       ++i;
     else

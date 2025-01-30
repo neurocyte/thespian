@@ -28,8 +28,8 @@ auto slave(const handle &last, int n) -> result {
   if (n)
     next = spawn_link([=]() { return slave(last, n - 1); }, "slave").value();
 
-  receive([n, next, last](auto, auto m) {
-    return n ? next.send_raw(move(m)) : last.send_raw(move(m));
+  receive([n, next, last](const auto &, const auto &m) {
+    return n ? next.send_raw(m) : last.send_raw(m);
   });
   return ok();
 }
@@ -41,11 +41,11 @@ auto controller(const int slaves) -> result {
   auto ret = spawn_link([=]() { return slave(last, slaves); }, "slave");
   if (not ret)
     return to_result(ret);
-  handle first = ret.value();
+  const handle &first = ret.value();
   auto ret2 = first.send("forward");
   if (not ret2)
     return ret2;
-  receive([loop, first, verbose](auto, auto m) mutable {
+  receive([loop, first, verbose](const auto &, const auto &m) mutable {
     if (loop) {
       if (verbose)
         auto _ = env().proc("log").send(loop);

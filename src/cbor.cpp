@@ -71,6 +71,7 @@ auto buffer::push_string(const string_view &s) -> buffer & {
 
 using json_iter = string::const_iterator;
 
+namespace {
 static auto match_wsp_char(json_iter &b, const json_iter &e) -> bool {
   if (b == e)
     return false;
@@ -347,6 +348,7 @@ static auto push_json_value(buffer &buf, json_iter &b, const json_iter &e)
 
   return false;
 }
+} // namespace
 
 auto buffer::push_json(const string &s) -> void {
   json_iter b = s.cbegin();
@@ -360,6 +362,7 @@ auto buffer::push_json(const string &s) -> void {
 
 using iter = buffer::const_iterator;
 
+namespace {
 static auto decode_int_length_recurse(size_t length, iter &b, const iter &e,
                                       int64_t i) -> int64_t {
   if (b == e)
@@ -426,6 +429,7 @@ static auto decode_type(iter &b, const iter &e)
   ++b;
   return make_tuple(uint8_t(type >> 5), uint8_t(type & 31), type);
 }
+} // namespace
 
 auto buffer::decode_range_header(iter &b, const iter &e) -> size_t {
   const auto [major, minor, type] = decode_type(b, e);
@@ -460,6 +464,7 @@ auto buffer::decode_map_header(iter &b, const iter &e) -> size_t {
   return decode_pint(minor, b, e);
 }
 
+namespace {
 static auto skip_string(uint8_t type, iter &b, const iter &e) -> void {
   auto len = decode_pint(type, b, e);
   while (len) {
@@ -559,6 +564,7 @@ static auto match_type(iter &b, const iter &e, type &v) -> bool {
   }
   return true;
 }
+} // namespace
 
 auto buffer::match_value(iter &b, const iter &e, type t) -> bool {
   type v{type::any};
@@ -570,6 +576,7 @@ auto buffer::match_value(iter &b, const iter &e, type t) -> bool {
   return false;
 }
 
+namespace {
 static auto match_uint(iter &b, const iter &e, unsigned long long int &val)
     -> bool {
   const auto [major, minor, type] = decode_type(b, e);
@@ -596,6 +603,7 @@ static auto match_int(iter &b, const iter &e, signed long long int &val)
   }
   return true;
 }
+} // namespace
 
 auto buffer::match_value(iter &b, const iter &e, unsigned long long int lit)
     -> bool {
@@ -613,6 +621,7 @@ auto buffer::match_value(iter &b, const iter &e, signed long long int lit)
   return false;
 }
 
+namespace {
 static auto match_bool(iter &b, const iter &e, bool &v) -> bool {
   const auto [major, minor, type] = decode_type(b, e);
   if (major == 7) { // special
@@ -627,6 +636,7 @@ static auto match_bool(iter &b, const iter &e, bool &v) -> bool {
   }
   return false;
 }
+} // namespace
 
 auto buffer::match_value(iter &b, const iter &e, bool lit) -> bool {
   bool val{};
@@ -635,6 +645,7 @@ auto buffer::match_value(iter &b, const iter &e, bool lit) -> bool {
   return false;
 }
 
+namespace {
 static auto match_string(iter &b, const iter &e, string_view &val) -> bool {
   const auto [major, minor, type] = decode_type(b, e);
   switch (major) {
@@ -649,6 +660,7 @@ static auto match_string(iter &b, const iter &e, string_view &val) -> bool {
   }
   return true;
 }
+} // namespace
 
 auto buffer::match_value(iter &b, const iter &e, const string_view lit)
     -> bool {
@@ -669,6 +681,7 @@ auto extract(type &t) -> buffer::extractor {
   return [&t](iter &b, const iter &e) { return match_type(b, e, t); };
 }
 
+namespace {
 template <typename T> static auto extract_int(T &i) -> buffer::extractor {
   return [&i](iter &b, const iter &e) {
     signed long long int i_{};
@@ -681,6 +694,8 @@ template <typename T> static auto extract_int(T &i) -> buffer::extractor {
     return false;
   };
 }
+} // namespace
+
 // clang-format off
 auto extract(signed long long int &i) -> buffer::extractor { return extract_int(i); }
 auto extract(signed long int &i) -> buffer::extractor { return extract_int(i); }
@@ -692,6 +707,7 @@ auto extract(signed char &i) -> buffer::extractor { return extract_int(i); }
 auto extract(unsigned long long int &i) -> buffer::extractor {
   return [&i](iter &b, const iter &e) { return match_uint(b, e, i); };
 }
+namespace {
 template <typename T> static auto extract_uint(T &i) -> buffer::extractor {
   return [&i](iter &b, const iter &e) {
     unsigned long long int i_{};
@@ -704,6 +720,7 @@ template <typename T> static auto extract_uint(T &i) -> buffer::extractor {
     return false;
   };
 }
+} // namespace
 // clang-format off
 auto extract(unsigned long int &i) -> buffer::extractor { return extract_uint(i); }
 auto extract(unsigned int &i) -> buffer::extractor { return extract_uint(i); }
@@ -748,6 +765,7 @@ auto buffer::match_value(iter &b, const iter &e, const extractor &ex) -> bool {
   return ex(b, e);
 }
 
+namespace {
 static auto tohex(ostream &os, uint8_t v) -> ostream & {
   return os << hex << setfill('0') << setw(2) << static_cast<unsigned>(v);
 }
@@ -866,6 +884,7 @@ static auto to_json_(const iter &b_, const iter &e) -> string {
   }
   return ss.str();
 }
+} // namespace
 
 auto buffer::to_json() const -> string {
   return to_json_(raw_cbegin(), raw_cend());
@@ -885,8 +904,8 @@ auto buffer::range::to_json(ostream &os) const -> void {
 extern "C" void cbor_to_json(cbor_buffer buf, cbor_to_json_callback cb) {
   auto cbor = cbor::buffer();
   const uint8_t *data = buf.base;
-  std::copy(data, data + buf.len,
-            back_inserter(cbor)); // NOLINT(*-pointer-arithmetic)
+  std::copy(data, data + buf.len, // NOLINT(*-pointer-arithmetic)
+            back_inserter(cbor));
   auto json = cbor.to_json();
   cb({json.data(), json.size()});
 }
@@ -909,11 +928,13 @@ auto buffer::value_accessor::type_() const -> type {
   return t;
 }
 
+namespace {
 template <typename T> static auto get(iter b, const iter &e) -> T {
   T val;
   extract(val)(b, e);
   return val;
 }
+} // namespace
 
 // clang-format off
 buffer::value_accessor::operator type() const { return get<type>(b, e); }

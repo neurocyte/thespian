@@ -9,8 +9,8 @@
 #if !defined(_WIN32)
 #include <netinet/in.h>
 #else
-#include <winsock2.h>
 #include <in6addr.h>
+#include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
 #endif
@@ -116,8 +116,9 @@ auto ip_udp_echo(context &ctx, bool &result, env_t env_) -> ::result {
   return to_result(ctx.spawn_link(
       [=]() {
         link(env().proc("log"));
-        receive([p{make_shared<controller>()}](auto /*from*/, auto m) {
-          return p->receive(move(m));
+        receive([p{make_shared<controller>()}](const auto & /*from*/,
+                                               const auto &m) {
+          return p->receive(m);
         });
         return ok();
       },

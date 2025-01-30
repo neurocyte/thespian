@@ -66,5 +66,4 @@ auto thespian_handle_is_expired(thespian_handle h) -> bool {
           h)};
   return h_->expired();
 }
-
 }

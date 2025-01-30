@@ -3,8 +3,6 @@
 #include "thespian/env.hpp"
 #include <thespian/instance.hpp>
 
-#include <string>
-
 using cbor::extract;
 using std::move;
 using thespian::context;
@@ -21,7 +19,7 @@ using thespian::unexpected;
 namespace {
 
 auto slave(const int slaves, int spawned) -> result {
-  receive([slaves, spawned](auto, auto m) mutable {
+  receive([slaves, spawned](const auto &, const auto &m) mutable {
     int n{0};
     if (!m(extract(n)))
       return unexpected(m);
@@ -50,7 +48,7 @@ auto controller(const int slaves) -> result {
   auto ret2 = ret.value().send(slaves - 1);
   if (not ret2)
     return ret2;
-  receive([](auto, auto) { return exit(); });
+  receive([](const auto &, const auto &) { return exit(); });
   return ok();
 }
 } // namespace

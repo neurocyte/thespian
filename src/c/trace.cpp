@@ -18,5 +18,4 @@ void thespian_trace_to_cbor_file(const char *file_name) {
 void thespian_trace_to_mermaid_file(const char *file_name) {
   thespian::trace_to_mermaid_file(file_name);
 }
-
 }

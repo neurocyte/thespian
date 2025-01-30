@@ -33,7 +33,7 @@ auto sub_plain(const hub &h, const handle &controller, string name) -> result {
   ret = controller.send("ready", name);
   if (not ret)
     return ret;
-  receive([=](auto /*from*/, auto m) {
+  receive([=](const auto & /*from*/, const auto &m) {
     string_view cmd;
     check(m("parmA", "parmB", "parmC", extract(cmd)));
     check(cmd == "continue" || cmd == "done");
@@ -50,13 +50,13 @@ auto sub_plain(const hub &h, const handle &controller, string name) -> result {
 auto sub_filtered(const hub &h, const handle &controller, string name)
     -> result {
   auto ret = h.subscribe(
-      [](auto m) { return m(type::any, type::any, type::any, "done"); });
+      [](const auto &m) { return m(type::any, type::any, type::any, "done"); });
   if (not ret)
     return ret;
   ret = controller.send("ready", name);
   if (not ret)
     return ret;
-  receive([=](auto /*from*/, auto m) {
+  receive([=](const auto & /*from*/, const auto &m) {
     check(m("parmA", "parmB", "parmC", "done"));
     auto ret = controller.send("done", name);
     if (not ret)
@@ -66,7 +66,7 @@ auto sub_filtered(const hub &h, const handle &controller, string name)
   return ok();
 }
 
-map<string, auto(*)(const hub &, const handle &, string)->result>
+map<string, auto (*)(const hub &, const handle &, string)->result>
     subscription_defs // NOLINT
     = {
         {"sub_plain", sub_plain},
@@ -95,7 +95,7 @@ auto controller() -> result {
   submap not_ready = subs;
   submap done = subs;
 
-  receive([=](auto, auto m) mutable {
+  receive([=](const auto &, const auto &m) mutable {
     string name;
     if (m("ready", extract(name))) {
       not_ready.erase(name);

@@ -3,7 +3,6 @@
 #include <thespian/instance.hpp>
 #include <thespian/trace.hpp>
 
-#include <limits>
 #include <string>
 
 using cbor::A;
