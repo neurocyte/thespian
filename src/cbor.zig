@@ -246,9 +246,9 @@ pub fn writeValue(writer: anytype, value: anytype) @TypeOf(writer).Error!void {
             }
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
-            .One => return writeValue(writer, value.*),
-            .Many, .C => @compileError("cannot write type '" ++ @typeName(T) ++ "' to cbor stream"),
-            .Slice => {
+            .one => return writeValue(writer, value.*),
+            .many, .c => @compileError("cannot write type '" ++ @typeName(T) ++ "' to cbor stream"),
+            .slice => {
                 if (ptr_info.child == u8) return writeString(writer, value);
                 if (value.len == 0) return writeNull(writer);
                 try writeArrayHeader(writer, value.len);
@@ -661,9 +661,9 @@ pub fn matchValue(iter: *[]const u8, value: anytype) Error!bool {
         .comptime_int => return matchIntValue(i64, iter, value),
         .bool => matchBoolValue(iter, value),
         .pointer => |info| switch (info.size) {
-            .One => matchValue(iter, value.*),
-            .Many, .C => matchError(T),
-            .Slice => if (info.child == u8) matchStringValue(iter, value) else matchArray(iter, value, info),
+            .one => matchValue(iter, value.*),
+            .many, .c => matchError(T),
+            .slice => if (info.child == u8) matchStringValue(iter, value) else matchArray(iter, value, info),
         },
         .@"struct" => |info| if (info.is_tuple)
             matchArray(iter, value, info)
@@ -856,7 +856,7 @@ fn Extractor(comptime T: type) type {
                 .int, .comptime_int => return matchInt(T, iter, self.dest),
                 .bool => return matchBool(iter, self.dest),
                 .pointer => |ptr_info| switch (ptr_info.size) {
-                    .Slice => {
+                    .slice => {
                         if (ptr_info.child == u8) return matchString(iter, self.dest) else extractError(T);
                     },
                     else => extractError(T),

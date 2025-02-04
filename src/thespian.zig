@@ -260,7 +260,7 @@ pub fn exit_fmt(comptime fmt: anytype, args: anytype) error{Exit} {
 }
 
 pub fn exit_error(e: anyerror, stack_trace: ?*std.builtin.StackTrace) error{Exit} {
-    if (stack_trace_on_errors and e == error.OutOfMemory) std.debug.panicExtra(stack_trace, null, "{any}", .{e});
+    if (stack_trace_on_errors and e == error.OutOfMemory) std.debug.panic("{any}", .{e});
     return switch (e) {
         error.Exit => error.Exit,
         else => set_error_msg(exit_message(e, stack_trace)),
