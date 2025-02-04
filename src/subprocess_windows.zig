@@ -138,10 +138,10 @@ const Proc = struct {
 
     fn receive(self: *Proc, _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
-        var bytes: []u8 = "";
-        var stream_name: []u8 = "";
+        var bytes: []const u8 = "";
+        var stream_name: []const u8 = "";
         var err: i64 = 0;
-        var err_msg: []u8 = "";
+        var err_msg: []const u8 = "";
         if (try m.match(.{ "stream", "stdout", "read_complete", tp.extract(&bytes) })) {
             try self.dispatch_stdout(bytes);
             if (self.stream_stdout) |stream| stream.start_read() catch |e| return self.handle_error(e);
@@ -692,7 +692,7 @@ const Child = struct {
         }
         var io_status: windows.IO_STATUS_BLOCK = undefined;
 
-        const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).Enum.fields.len;
+        const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).@"enum".fields.len;
         var pathext_seen = [_]bool{false} ** num_supported_pathext;
         var any_pathext_seen = false;
         var unappended_exists = false;
