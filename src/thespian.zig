@@ -499,14 +499,14 @@ fn log_last_error(err: anytype) @TypeOf(err) {
 fn exitHandlerRun(comptime T: type) c.thespian_exit_handler {
     if (T == @TypeOf(null)) return null;
     return switch (@typeInfo(T)) {
-        .Optional => |info| switch (@typeInfo(info.child)) {
-            .Pointer => |ptr_info| switch (ptr_info.size) {
-                .One => ptr_info.child.run,
+        .optional => |info| switch (@typeInfo(info.child)) {
+            .pointer => |ptr_info| switch (ptr_info.size) {
+                .one => ptr_info.child.run,
                 else => @compileError("expected single item pointer, found: '" ++ @typeName(T) ++ "'"),
             },
         },
-        .Pointer => |ptr_info| switch (ptr_info.size) {
-            .One => ptr_info.child.run,
+        .pointer => |ptr_info| switch (ptr_info.size) {
+            .one => ptr_info.child.run,
             else => @compileError("expected single item pointer, found: '" ++ @typeName(T) ++ "'"),
         },
         else => @compileError("expected optional pointer or pointer type, found: '" ++ @typeName(T) ++ "'"),
@@ -515,8 +515,8 @@ fn exitHandlerRun(comptime T: type) c.thespian_exit_handler {
 
 pub fn receive(r: anytype) void {
     const T = switch (@typeInfo(@TypeOf(r))) {
-        .Pointer => |ptr_info| switch (ptr_info.size) {
-            .One => ptr_info.child,
+        .pointer => |ptr_info| switch (ptr_info.size) {
+            .one => ptr_info.child,
             else => @compileError("invalid receiver type"),
         },
         else => @compileError("invalid receiver type"),

@@ -145,9 +145,9 @@ const Proc = struct {
 
     fn receive(self: *Proc, _: tp.pid_ref, m: tp.message) tp.result {
         errdefer self.deinit();
-        var bytes: []u8 = "";
+        var bytes: []const u8 = "";
         var err: i64 = 0;
-        var err_msg: []u8 = "";
+        var err_msg: []const u8 = "";
         if (try m.match(.{ "fd", "stdout", "read_ready" })) {
             try self.dispatch_stdout();
             if (self.fd_stdout) |fd_stdout| fd_stdout.wait_read() catch |e| return self.handle_error(e);
