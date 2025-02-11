@@ -58,12 +58,16 @@ using asio::windows::stream_handle;
 
 namespace thespian::executor {
 
+const char *MIN_THREAD_STR = getenv("MIN_THREAD"); // NOLINT
+const auto MIN_THREAD =
+    static_cast<long>(atoi(MIN_THREAD_STR ? MIN_THREAD_STR : "4")); // NOLINT
+
 const char *MAX_THREAD_STR = getenv("MAX_THREAD"); // NOLINT
 const auto MAX_THREAD =
     static_cast<long>(atoi(MAX_THREAD_STR ? MAX_THREAD_STR : "64")); // NOLINT
 
 #if !defined(_WIN32)
-const auto threads = min(sysconf(_SC_NPROCESSORS_ONLN), MAX_THREAD);
+const auto threads = max(min(sysconf(_SC_NPROCESSORS_ONLN), MAX_THREAD), MIN_THREAD);
 #else
 namespace {
 static auto get_num_processors() -> long {
@@ -72,7 +76,7 @@ static auto get_num_processors() -> long {
   return si.dwNumberOfProcessors;
 }
 } // namespace
-const auto threads = min(get_num_processors(), MAX_THREAD);
+const auto threads = max(min(get_num_processors(), MAX_THREAD), MIN_THREAD);
 #endif
 
 struct context_impl {
