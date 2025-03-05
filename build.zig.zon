@@ -1,15 +1,16 @@
 .{
-    .name = "thespian",
+    .name = .thespian,
     .version = "0.0.1",
+    .fingerprint = 0xe9ff00fd8e4e01a3,
 
     .dependencies = .{
         .asio = .{
-            .url = "https://github.com/neurocyte/asio/archive/8cc76c9ed4054f45bfc06476d795477096aab7a5.tar.gz",
-            .hash = "12206a4050ebb2e2bf84ed477ea5fe0d0325f9292eef2cb8bd47ccda75a9b3d93516",
+            .url = "https://github.com/neurocyte/asio/archive/24d28864ec5aae6146d88a172288e3bf3f099734.tar.gz",
+            .hash = "asio-1.30.2-tLhDdyKA4QBqQFDrsuK_hO1HfqX-DQMl-Sku7yy4vUfM",
         },
         .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/e04e31c64498149a324491b8534758e6af43a5c2.tar.gz",
-            .hash = "1220d0fb2bff7b453dbb39d1db3eb472b6680e2564f2b23b0e947671be47bbdd188f",
+            .url = "https://github.com/neurocyte/zig-tracy/archive/f2fe3021501c19816006ab65e3389b1c5f0c3c3a.tar.gz",
+            .hash = "zig_tracy-0.0.3-5-cp3Kp2AABlufxcWskNe6YfKeqCRpDu7b57JvE-Yj1w",
         },
     },
     .paths = .{
