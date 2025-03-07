@@ -9,8 +9,8 @@
             .hash = "asio-1.30.2-tLhDdyKA4QBqQFDrsuK_hO1HfqX-DQMl-Sku7yy4vUfM",
         },
         .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/f2fe3021501c19816006ab65e3389b1c5f0c3c3a.tar.gz",
-            .hash = "zig_tracy-0.0.3-5-cp3Kp2AABlufxcWskNe6YfKeqCRpDu7b57JvE-Yj1w",
+            .url = "https://github.com/neurocyte/zig-tracy/archive/82f18a661af17089198fb7c489ef253f02b939b5.tar.gz",
+            .hash = "zig_tracy-0.0.3-5-cp3JZ2AAC6j-gWFhPKXyF6WASJpCzQeNy7Bi712t1a",
         },
     },
     .paths = .{
