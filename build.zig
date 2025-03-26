@@ -74,9 +74,11 @@ pub fn build(b: *std.Build) void {
     lib.linkLibCpp();
     b.installArtifact(lib);
 
-    const cbor_mod = b.addModule("cbor", .{
-        .root_source_file = b.path("src/cbor.zig"),
+    const cbor_dep = b.dependency("cbor", .{
+        .target = target,
+        .optimize = optimize,
     });
+    const cbor_mod = cbor_dep.module("cbor");
 
     const thespian_mod = b.addModule("thespian", .{
         .root_source_file = b.path("src/thespian.zig"),
