@@ -756,7 +756,7 @@ pub const file_descriptor = struct {
     const Self = @This();
 
     pub fn init(tag_: []const u8, fd: i32) !Self {
-        return .{ .handle = c.thespian_file_descriptor_create(tag_.ptr, fd) orelse return log_last_error(error.ThespianFileDescriptorInitFailed) };
+        return .{ .handle = c.thespian_file_descriptor_create(tag_.ptr, fd) orelse return error.ThespianFileDescriptorInitFailed };
     }
 
     pub fn wait_write(self: *const Self) !void {
