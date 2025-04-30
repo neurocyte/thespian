@@ -622,6 +622,8 @@ struct watcher_impl {
       : ctx{strand.ref->ctx}, strand_{strand.ref->strand_},
         fd_{*ctx->asio, fd} {}
 
+  ~watcher_impl() { fd_.release(); }
+
   void wait_read(watcher::handler h) {
     if (!read_in_progress_) {
       read_in_progress_ = true;
