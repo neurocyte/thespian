@@ -93,7 +93,6 @@ static void install_crash_handler(void (*hdlr)(int, siginfo_t *, void *)) {
   sigaction(SIGBUS, &action, nullptr);
   sigaction(SIGSEGV, &action, nullptr);
   sigaction(SIGABRT, &action, nullptr);
-  sigaction(SIGTRAP, &action, nullptr);
   sigaction(SIGFPE, &action, nullptr);
 }
 } // namespace
