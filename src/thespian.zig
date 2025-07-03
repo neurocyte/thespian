@@ -21,6 +21,11 @@ pub const install_debugger = c.install_debugger;
 pub const install_remote_debugger = c.install_remote_debugger;
 pub const install_backtrace = c.install_backtrace;
 pub const install_jitdebugger = c.install_jitdebugger;
+
+pub const sighdl_debugger = c.sighdl_debugger;
+pub const sighdl_remote_debugger = c.sighdl_remote_debugger;
+pub const sighdl_backtrace = c.sighdl_backtrace;
+
 pub const max_message_size = 8 * 4096;
 const message_buf_allocator = std.heap.c_allocator;
 threadlocal var message_buffer: std.ArrayList(u8) = std.ArrayList(u8).init(message_buf_allocator);
