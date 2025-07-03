@@ -18,6 +18,7 @@ pub var stack_trace_on_errors: bool = false;
 pub const subprocess = if (builtin.os.tag == .windows) @import("subprocess_windows.zig") else @import("subprocess.zig");
 
 pub const install_debugger = c.install_debugger;
+pub const install_remote_debugger = c.install_remote_debugger;
 pub const install_backtrace = c.install_backtrace;
 pub const install_jitdebugger = c.install_jitdebugger;
 pub const max_message_size = 8 * 4096;

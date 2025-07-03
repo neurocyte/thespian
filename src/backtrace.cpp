@@ -1,6 +1,5 @@
 #ifdef __linux__
 
-#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -31,7 +30,8 @@ static void get_pid_binpath() {
 }
 
 static const auto lldb{"/usr/bin/lldb"};
-static const auto default_debugger{"/usr/bin/gdbserver"};
+static const auto default_debugger{"/usr/bin/gdb"};
+static const auto default_remote_debugger{"/usr/bin/gdbserver"};
 
 static auto get_debugger() -> const char * {
   const char *debugger = secure_getenv("JITDEBUG");
@@ -46,6 +46,20 @@ static auto get_debugger() -> const char * {
   return debugger;
 }
 const char *const debugger = get_debugger();
+
+static auto get_remote_debugger() -> const char * {
+  const char *debugger = secure_getenv("JITDEBUG");
+  if (not debugger)
+    return default_remote_debugger;
+  if (strcmp(debugger, "on") == 0)
+    return default_remote_debugger;
+  if (strcmp(debugger, "1") == 0)
+    return default_remote_debugger;
+  if (strcmp(debugger, "true") == 0)
+    return default_remote_debugger;
+  return debugger;
+}
+const char *const remote_debugger = get_remote_debugger();
 
 void start_debugger(const char *dbg, const char **argv) {
 #if defined(PR_SET_PTRACER)
@@ -67,8 +81,18 @@ void start_debugger(const char *dbg, const char **argv) {
 extern "C" void sighdl_debugger(int no, siginfo_t * /*sigi*/, void * /*uco*/) {
   get_pid_binpath();
   const char *argv[] = {// NOLINT
-                        debugger, "--attach", "[::1]:7777", pid_s, nullptr};
+                        debugger, "--pid", pid_s, nullptr};
   start_debugger(debugger, argv);
+  (void)raise(no);
+}
+
+extern "C" void sighdl_remote_debugger(int no, siginfo_t * /*sigi*/,
+                                       void * /*uco*/) {
+  get_pid_binpath();
+  const char *argv[] = {// NOLINT
+                        remote_debugger, "--attach", "[::1]:7777", pid_s,
+                        "-ex",           "continue", nullptr};
+  start_debugger(remote_debugger, argv);
   (void)raise(no);
 }
 
@@ -98,6 +122,9 @@ static void install_crash_handler(void (*hdlr)(int, siginfo_t *, void *)) {
 } // namespace
 
 extern "C" void install_debugger() { install_crash_handler(sighdl_debugger); }
+extern "C" void install_remote_debugger() {
+  install_crash_handler(sighdl_remote_debugger);
+}
 extern "C" void install_backtrace() { install_crash_handler(sighdl_backtrace); }
 extern "C" void install_jitdebugger() {
   if (secure_getenv("JITDEBUG"))
