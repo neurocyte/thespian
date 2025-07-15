@@ -34,10 +34,13 @@ pub fn build(b: *std.Build) void {
     const asio_dep = b.dependency("asio", mode);
     const tracy_dep = if (tracy_enabled) b.dependency("tracy", mode) else undefined;
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "thespian",
-        .target = target,
-        .optimize = optimize,
+        .linkage = .static,
+        .root_module = b.createModule(.{
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     if (tracy_enabled) {
         lib.root_module.addCMacro("TRACY_ENABLE", "1");
@@ -90,9 +93,11 @@ pub fn build(b: *std.Build) void {
     thespian_mod.linkLibrary(lib);
 
     const tests = b.addTest(.{
-        .root_source_file = b.path("test/tests.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/tests.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     tests.root_module.addImport("build_options", options_mod);

@@ -5,16 +5,16 @@
 
     .dependencies = .{
         .cbor = .{
-            .url = "https://github.com/neurocyte/cbor/archive/5ea4b7319146f29bb1aa9acf65982feaba9edc3d.tar.gz",
-            .hash = "cbor-1.0.0-RcQE_GDyAABovyRXoYFX8zD_NVOLGDc9l5g09-W-svMR",
+            .url = "git+https://github.com/neurocyte/cbor#6eccce0b984296e7d05c20d83933cb31530e4fac",
+            .hash = "cbor-1.0.0-RcQE_N3yAADXjbyvhsmTQ6lf22l1nYgePq5FT8NaC4ic",
         },
         .asio = .{
-            .url = "https://github.com/neurocyte/asio/archive/c017afbe65b4b71b5ba3ecaeb6dbc981df75dc9b.tar.gz",
-            .hash = "asio-1.30.2-tLhDdweB4QAEkwboXZ-EshXBw4Fxs4KGxYhKdR0hu5O1",
+            .url = "git+https://github.com/neurocyte/asio#0f1cbf24e5fb6fabe7078a20b76452f42e24a0df",
+            .hash = "asio-1.30.2-tLhDd0SB4QB1041_DEW_1cvEw8eMfBYLAwjN_G53Fn66",
         },
         .tracy = .{
-            .url = "https://github.com/neurocyte/zig-tracy/archive/82f18a661af17089198fb7c489ef253f02b939b5.tar.gz",
-            .hash = "zig_tracy-0.0.3-5-cp3JZ2AAC6j-gWFhPKXyF6WASJpCzQeNy7Bi712t1a",
+            .url = "git+https://github.com/neurocyte/zig-tracy#67070c146104d93fd3bed5091738f22e33e13bce",
+            .hash = "zig_tracy-0.0.3-5-cp3Ht3AAAfHqShKfTK7waFK3Wjd3l2NheiqxvRRAdo",
         },
     },
     .paths = .{
