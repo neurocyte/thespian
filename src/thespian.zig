@@ -230,15 +230,15 @@ pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {
         var debug_info_arena_allocator: std.heap.ArenaAllocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer debug_info_arena_allocator.deinit();
         const a = debug_info_arena_allocator.allocator();
-        var out = std.ArrayList(u8).init(a);
-        store_stack_trace(stack_trace_.*, out.writer());
-        return message.fmtbuf(&error_message_buffer, .{ "exit", e, out.items }) catch unreachable;
+        var out: std.Io.Writer.Allocating = .init(a);
+        store_stack_trace(stack_trace_.*, &out.writer);
+        return message.fmtbuf(&error_message_buffer, .{ "exit", e, out.getWritten() }) catch unreachable;
     } else {
         return message.fmtbuf(&error_message_buffer, .{ "exit", e }) catch unreachable;
     }
 }
 
-fn store_stack_trace(stack_trace: std.builtin.StackTrace, writer: anytype) void {
+fn store_stack_trace(stack_trace: std.builtin.StackTrace, writer: *std.Io.Writer) void {
     nosuspend {
         if (builtin.strip_debug_info) {
             writer.print("Unable to store stack trace: debug info stripped\n", .{}) catch return;
