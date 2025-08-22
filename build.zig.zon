@@ -5,8 +5,8 @@
 
     .dependencies = .{
         .cbor = .{
-            .url = "git+https://github.com/neurocyte/cbor?ref=master#ba2955fe3aa08456ed61a0e087be1e2ec46927e0",
-            .hash = "cbor-1.0.0-RcQE_NEzAQAGoED9NqVSWT0fhB8peqbXe99IixQKTeVp",
+            .url = "git+https://github.com/neurocyte/cbor?ref=master#0708420594f5af0a8289e6e1bae0ae03f011731f",
+            .hash = "cbor-1.0.0-RcQE_CUwAQChkeU-LO-eTSbLAdRox-wuxUGmi2nDAWri",
         },
         .asio = .{
             .url = "git+https://github.com/neurocyte/asio#0f1cbf24e5fb6fabe7078a20b76452f42e24a0df",
