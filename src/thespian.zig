@@ -30,7 +30,7 @@ pub const sighdl_backtrace = if (builtin.os.tag != .windows) c_posix.sighdl_back
 
 pub const max_message_size = 8 * 4096;
 const message_buf_allocator = std.heap.c_allocator;
-threadlocal var message_buffer: std.ArrayList(u8) = std.ArrayList(u8).init(message_buf_allocator);
+threadlocal var message_buffer: std.ArrayList(u8) = .empty;
 threadlocal var error_message_buffer: [256]u8 = undefined;
 threadlocal var error_buffer_tl: c.thespian_error = .{
     .base = null,
@@ -147,6 +147,7 @@ pub const message = struct {
 
     pub fn fmt(value: anytype) Self {
         message_buffer.clearRetainingCapacity();
+        var writer = std.Io.Writer.Allocating.fromArrayList(message_buf_allocator, &message_buffer);
         const f = comptime switch (@typeInfo(@TypeOf(value))) {
             .@"struct" => |info| if (info.is_tuple)
                 fmt_internal
@@ -154,15 +155,16 @@ pub const message = struct {
                 @compileError("thespian.message template should be a tuple: " ++ @typeName(@TypeOf(value))),
             else => fmt_internal_scalar,
         };
-        f(message_buffer.writer(), value) catch |e| std.debug.panic("thespian.message.fmt: {any}", .{e});
+        f(&writer.writer, value) catch |e| std.debug.panic("thespian.message.fmt: {any}", .{e});
+        message_buffer = writer.toArrayList();
         return .{ .buf = message_buffer.items };
     }
 
-    fn fmt_internal_scalar(writer: std.ArrayList(u8).Writer, value: anytype) !void {
+    fn fmt_internal_scalar(writer: *std.Io.Writer, value: anytype) !void {
         return fmt_internal(writer, .{value});
     }
 
-    fn fmt_internal(writer: std.ArrayList(u8).Writer, value: anytype) !void {
+    fn fmt_internal(writer: *std.Io.Writer, value: anytype) !void {
         try cbor.writeValue(writer, value);
     }
 
@@ -182,9 +184,9 @@ pub const message = struct {
     }
 
     fn fmtbuf_internal(buf: []u8, value: anytype) !Self {
-        var stream = std.io.fixedBufferStream(buf);
-        try cbor.writeValue(stream.writer(), value);
-        return .{ .buf = stream.getWritten() };
+        var stream: std.Io.Writer = .fixed(buf);
+        try cbor.writeValue(&stream, value);
+        return .{ .buf = stream.buffered() };
     }
 
     pub fn len(self: Self) usize {
@@ -232,7 +234,7 @@ pub fn exit_message(e: anytype, stack_trace: ?*std.builtin.StackTrace) message {
         const a = debug_info_arena_allocator.allocator();
         var out: std.Io.Writer.Allocating = .init(a);
         store_stack_trace(stack_trace_.*, &out.writer);
-        return message.fmtbuf(&error_message_buffer, .{ "exit", e, out.getWritten() }) catch unreachable;
+        return message.fmtbuf(&error_message_buffer, .{ "exit", e, out.writer.buffered() }) catch unreachable;
     } else {
         return message.fmtbuf(&error_message_buffer, .{ "exit", e }) catch unreachable;
     }
