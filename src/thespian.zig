@@ -211,7 +211,7 @@ pub const message = struct {
     }
 
     pub const json_string_view = c.c_string_view;
-    const json_callback = *const fn (json_string_view) callconv(.C) void;
+    const json_callback = *const fn (json_string_view) callconv(.c) void;
 
     pub fn to_json_cb(self: *const Self, callback: json_callback) void {
         c.cbor_to_json(self.to(c_buffer_type), callback);
@@ -394,7 +394,7 @@ pub const env = struct {
         return c.thespian_env_enabled(self.env, chan);
     }
 
-    pub const trace_handler = *const fn (c.cbor_buffer) callconv(.C) void;
+    pub const trace_handler = *const fn (c.cbor_buffer) callconv(.c) void;
 
     pub fn on_trace(self: *const Self, h: trace_handler) void {
         c.thespian_env_on_trace(self.env, h);
@@ -450,7 +450,7 @@ pub fn trace(chan: trace_channel, value: anytype) void {
 pub const context = struct {
     a: std.mem.Allocator,
     context: c.thespian_context,
-    context_destroy: *const fn (?*anyopaque) callconv(.C) void,
+    context_destroy: *const fn (?*anyopaque) callconv(.c) void,
 
     const Self = @This();
 
@@ -545,7 +545,7 @@ pub fn Receiver(comptime T: type) type {
         pub fn init(f: FunT, data: T) Self {
             return .{ .f = f, .data = data };
         }
-        pub fn run(ostate: c.thespian_behaviour_state, from: c.thespian_handle, m: c.cbor_buffer) callconv(.C) c.thespian_result {
+        pub fn run(ostate: c.thespian_behaviour_state, from: c.thespian_handle, m: c.cbor_buffer) callconv(.c) c.thespian_result {
             const state: *Self = @ptrCast(@alignCast(ostate orelse unreachable));
             reset_error();
             return to_result(state.f(state.data, wrap_handle(from), message.from(m)));
@@ -624,7 +624,7 @@ fn Behaviour(comptime T: type) type {
             self.a.destroy(self);
         }
 
-        pub fn run(state: c.thespian_behaviour_state) callconv(.C) c.thespian_result {
+        pub fn run(state: c.thespian_behaviour_state) callconv(.c) c.thespian_result {
             const self: *Self = @ptrCast(@alignCast(state orelse unreachable));
             defer self.destroy();
             reset_error();
@@ -687,7 +687,7 @@ fn ExitHandler(comptime T: type) type {
             if (self.a) |a_| a_.destroy(self);
         }
 
-        pub fn run(state: c.thespian_exit_handler_state, msg: [*c]const u8, len: usize) callconv(.C) void {
+        pub fn run(state: c.thespian_exit_handler_state, msg: [*c]const u8, len: usize) callconv(.c) void {
             const self: *Self = @ptrCast(@alignCast(state orelse unreachable));
             defer self.destroy();
             self.f(self.data, msg[0..len]);
