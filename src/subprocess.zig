@@ -111,7 +111,7 @@ const Proc = struct {
             .parent = tp.self_pid().clone(),
             .child = child,
             .tag = try a.dupeZ(u8, tag),
-            .stdin_buffer = std.ArrayList(u8).init(a),
+            .stdin_buffer = .empty,
         };
         return tp.spawn_link(a, self, Proc.start, tag);
     }
@@ -120,7 +120,7 @@ const Proc = struct {
         if (self.fd_stdin) |fd| fd.deinit();
         if (self.fd_stdout) |fd| fd.deinit();
         if (self.fd_stderr) |fd| fd.deinit();
-        self.stdin_buffer.deinit();
+        self.stdin_buffer.deinit(self.a);
         self.parent.deinit();
         self.args.deinit();
         self.a.free(self.tag);
@@ -186,7 +186,7 @@ const Proc = struct {
             }
         } else if (try m.match(.{ "stdin", tp.extract(&bytes) })) {
             if (self.fd_stdin) |fd_stdin| {
-                self.stdin_buffer.appendSlice(bytes) catch |e| return self.handle_error(e);
+                self.stdin_buffer.appendSlice(self.a, bytes) catch |e| return self.handle_error(e);
                 fd_stdin.wait_write() catch |e| return self.handle_error(e);
                 self.write_pending = true;
             }
