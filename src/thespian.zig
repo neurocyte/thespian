@@ -220,7 +220,7 @@ pub const message = struct {
         return if (cbor.match(self.buf, m)) |ret| ret else |e| exit_error(e, @errorReturnTrace());
     }
 
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) std.Io.Writer.Error!void {
         return cbor.toJsonWriter(self.buf, writer, .{});
     }
 };
