@@ -183,9 +183,11 @@ pub const message = struct {
         return fmtbuf_internal(buf, .{value});
     }
 
-    fn fmtbuf_internal(buf: []u8, value: anytype) !Self {
+    fn fmtbuf_internal(buf: []u8, value: anytype) error{NoSpaceLeft}!Self {
         var stream: std.Io.Writer = .fixed(buf);
-        try cbor.writeValue(&stream, value);
+        cbor.writeValue(&stream, value) catch |e| return switch (e) {
+            error.WriteFailed => error.NoSpaceLeft,
+        };
         return .{ .buf = stream.buffered() };
     }
 
@@ -221,7 +223,7 @@ pub const message = struct {
     }
 
     pub fn format(self: @This(), writer: anytype) std.Io.Writer.Error!void {
-        return cbor.toJsonWriter(self.buf, writer, .{});
+        return cbor.toJsonWriter(self.buf, writer, .{}) catch error.WriteFailed;
     }
 };
 
