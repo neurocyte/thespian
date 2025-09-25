@@ -4,11 +4,10 @@ const tp = @import("thespian.zig");
 
 pid: ?tp.pid,
 stdin_behavior: std.process.Child.StdIo,
+write_buf: [max_chunk_size]u8 = undefined,
 
 const Self = @This();
 pub const max_chunk_size = 4096 - 32;
-pub const Writer = std.io.Writer(*Self, error{Exit}, write);
-pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 
 pub fn init(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !Self {
     return .{
@@ -24,9 +23,46 @@ pub fn deinit(self: *Self) void {
     }
 }
 
-pub fn write(self: *Self, bytes: []const u8) error{Exit}!usize {
-    try self.send(bytes);
+pub fn write(self: *Self, bytes: []const u8) error{WriteFailed}!usize {
+    self.send(bytes) catch return error.WriteFailed;
     return bytes.len;
+}
+
+pub const Writer = struct {
+    subprocess: *Self,
+    interface: std.Io.Writer,
+};
+
+pub fn writer(self: *Self, buffer: []u8) Writer {
+    return .{
+        .subprocess = self,
+        .interface = .{
+            .vtable = &.{
+                .drain = drain,
+                .flush = std.Io.Writer.noopFlush,
+                .rebase = std.Io.Writer.failingRebase,
+            },
+            .buffer = buffer,
+        },
+    };
+}
+
+fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+    const writer_: *Self.Writer = @alignCast(@fieldParentPtr("interface", w));
+    std.debug.assert(splat == 0);
+    if (data_.len == 0) return 0;
+    var written: usize = 0;
+    for (data_[0 .. data_.len - 1]) |bytes| {
+        written += try writer_.subprocess.write(bytes);
+    }
+    const pattern_ = data_[data_.len - 1];
+    switch (pattern_.len) {
+        0 => return written,
+        else => for (0..splat) |_| {
+            written += try writer_.subprocess.write(pattern_);
+        },
+    }
+    return written;
 }
 
 pub fn send(self: *const Self, bytes_: []const u8) tp.result {
@@ -54,14 +90,6 @@ pub fn close(self: *Self) tp.result {
 pub fn term(self: *Self) tp.result {
     defer self.deinit();
     if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"term"});
-}
-
-pub fn writer(self: *Self) Writer {
-    return .{ .context = self };
-}
-
-pub fn bufferedWriter(self: *Self) BufferedWriter {
-    return .{ .unbuffered_writer = self.writer() };
 }
 
 const Proc = struct {
