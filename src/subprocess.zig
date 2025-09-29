@@ -39,8 +39,6 @@ pub fn writer(self: *Self, buffer: []u8) Writer {
         .interface = .{
             .vtable = &.{
                 .drain = drain,
-                .flush = std.Io.Writer.noopFlush,
-                .rebase = std.Io.Writer.failingRebase,
             },
             .buffer = buffer,
         },
