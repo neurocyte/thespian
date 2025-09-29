@@ -47,8 +47,13 @@ pub fn writer(self: *Self, buffer: []u8) Writer {
 
 fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
     const writer_: *Self.Writer = @alignCast(@fieldParentPtr("interface", w));
-    if (data_.len == 0) return 0;
     var written: usize = 0;
+    const buffered = w.buffered();
+    if (buffered.len != 0) {
+        const n = try writer_.subprocess.write(buffered);
+        written += w.consume(n);
+    }
+    if (data_.len == 0) return written;
     for (data_[0 .. data_.len - 1]) |bytes| {
         written += try writer_.subprocess.write(bytes);
     }
