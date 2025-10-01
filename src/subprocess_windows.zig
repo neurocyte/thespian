@@ -7,8 +7,6 @@ stdin_behavior: Child.StdIo,
 
 const Self = @This();
 pub const max_chunk_size = 4096 - 32;
-pub const Writer = std.io.Writer(*Self, error{Exit}, write);
-pub const BufferedWriter = std.io.BufferedWriter(max_chunk_size, Writer);
 
 pub fn init(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: Child.StdIo) !Self {
     return .{
@@ -24,8 +22,8 @@ pub fn deinit(self: *Self) void {
     }
 }
 
-pub fn write(self: *Self, bytes: []const u8) error{Exit}!usize {
-    try self.send(bytes);
+pub fn write(self: *Self, bytes: []const u8) error{WriteFailed}!usize {
+    self.send(bytes) catch return error.WriteFailed;
     return bytes.len;
 }
 
@@ -56,12 +54,43 @@ pub fn term(self: *Self) tp.result {
     if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"term"});
 }
 
-pub fn writer(self: *Self) Writer {
-    return .{ .context = self };
+pub const Writer = struct {
+    subprocess: *Self,
+    interface: std.Io.Writer,
+};
+
+pub fn writer(self: *Self, buffer: []u8) Writer {
+    return .{
+        .subprocess = self,
+        .interface = .{
+            .vtable = &.{
+                .drain = drain,
+            },
+            .buffer = buffer,
+        },
+    };
 }
 
-pub fn bufferedWriter(self: *Self) BufferedWriter {
-    return .{ .unbuffered_writer = self.writer() };
+fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+    const writer_: *Self.Writer = @alignCast(@fieldParentPtr("interface", w));
+    var written: usize = 0;
+    const buffered = w.buffered();
+    if (buffered.len != 0) {
+        const n = try writer_.subprocess.write(buffered);
+        written += w.consume(n);
+    }
+    if (data_.len == 0) return written;
+    for (data_[0 .. data_.len - 1]) |bytes| {
+        written += try writer_.subprocess.write(bytes);
+    }
+    const pattern_ = data_[data_.len - 1];
+    switch (pattern_.len) {
+        0 => return written,
+        else => for (0..splat) |_| {
+            written += try writer_.subprocess.write(pattern_);
+        },
+    }
+    return written;
 }
 
 const Proc = struct {
@@ -106,7 +135,7 @@ const Proc = struct {
             .parent = tp.self_pid().clone(),
             .child = child,
             .tag = try a.dupeZ(u8, tag),
-            .stdin_buffer = std.ArrayList(u8).init(a),
+            .stdin_buffer = .empty,
         };
         return tp.spawn_link(a, self, Proc.start, tag);
     }
@@ -115,7 +144,7 @@ const Proc = struct {
         self.args.deinit();
         if (self.stream_stdout) |stream| stream.deinit();
         if (self.stream_stderr) |stream| stream.deinit();
-        self.stdin_buffer.deinit();
+        self.stdin_buffer.deinit(self.a);
         self.parent.deinit();
         self.a.free(self.tag);
     }
@@ -843,7 +872,7 @@ const Child = struct {
         allocator: mem.Allocator,
         argv: []const []const u8,
     ) ![:0]u16 {
-        var buf = std.ArrayList(u8).init(allocator);
+        var buf = std.array_list.Managed(u8).init(allocator);
         defer buf.deinit();
 
         if (argv.len != 0) {
@@ -910,7 +939,7 @@ const Child = struct {
         script_path: []const u16,
         script_args: []const []const u8,
     ) ![:0]u16 {
-        var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
+        var buf = try std.array_list.Managed(u8).initCapacity(allocator, 64);
         defer buf.deinit();
 
         buf.appendSliceAssumeCapacity("cmd.exe /d /e:ON /v:OFF /c \"");
@@ -1083,7 +1112,10 @@ const Child = struct {
             null,
             null,
             windows.TRUE,
-            windows.CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+            .{
+                .create_unicode_environment = true,
+                .create_no_window = true,
+            },
             @as(?*anyopaque, @ptrCast(envp_ptr)),
             cwd_ptr,
             lpStartupInfo,
@@ -1142,7 +1174,7 @@ const Child = struct {
         }
 
         windows.TerminateProcess(self.id, 1) catch |err| switch (err) {
-            error.PermissionDenied => {
+            error.AccessDenied => {
                 windows.WaitForSingleObjectEx(self.id, 0, false) catch return err;
                 return error.AlreadyTerminated;
             },
