@@ -1,6 +1,7 @@
 .{
     .name = .thespian,
     .version = "0.0.1",
+    .minimum_zig_version = "0.15.2",
     .fingerprint = 0xe9ff00fd8e4e01a3,
 
     .dependencies = .{
