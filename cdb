@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+rm -rf .zig-cache
+rm -rf .cache/cdb
+mkdir -p .cache/cdb
+
+zig build
+
+(
+    echo \[
+    cat .cache/cdb/*
+    echo {}\]
+) | perl -0777 -pe 's/,\n\{\}//igs' | jq . | grep -v 'no-default-config' >compile_commands.json
+exit 0
