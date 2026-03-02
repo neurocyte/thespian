@@ -23,6 +23,11 @@ struct acceptor {
   acceptor_ref ref;
 };
 
+// C++ helpers used by the C binding layer
+void acceptor_listen(acceptor_impl *h, std::string_view path, mode m);
+void acceptor_close(acceptor_impl *h);
+void destroy_acceptor(acceptor_impl *h);
+
 struct connector_impl;
 using connector_dtor = void (*)(connector_impl *);
 using connector_ref = std::unique_ptr<connector_impl, connector_dtor>;
@@ -38,5 +43,10 @@ struct connector {
 
   connector_ref ref;
 };
+
+// C++ helpers for C API
+void connector_connect(connector_impl *h, std::string_view path, mode m);
+void connector_cancel(connector_impl *h);
+void destroy_connector(connector_impl *h);
 
 } // namespace thespian::unx

@@ -6,6 +6,7 @@ const c = @cImport({
     @cInclude("thespian/c/metronome.h");
     @cInclude("thespian/c/timeout.h");
     @cInclude("thespian/c/signal.h");
+    @cInclude("thespian/c/unx.h");
 });
 const c_posix = if (builtin.os.tag != .windows) @cImport({
     @cInclude("thespian/backtrace.h");
@@ -738,6 +739,61 @@ pub const metronome = struct {
 
     pub fn deinit(self: *const Self) void {
         c.thespian_metronome_destroy(self.handle);
+    }
+};
+
+pub const unx_mode = enum(u8) {
+    file = 0,
+    abstract = 1,
+};
+
+pub const unx_acceptor = struct {
+    handle: *c.struct_thespian_unx_acceptor_handle,
+
+    const Self = @This();
+
+    pub fn init(tag_: []const u8) !Self {
+        return .{ .handle = c.thespian_unx_acceptor_create(tag_) orelse return log_last_error(error.ThespianUnxAcceptorInitFailed) };
+    }
+
+    pub fn listen(self: *const Self, path: []const u8, mode: unx_mode) !void {
+        const mval: u8 = @intCast(mode);
+        const ret = c.thespian_unx_acceptor_listen(self.handle, path, mval);
+        if (ret < 0) return error.ThespianUnxAcceptorListenFailed;
+    }
+
+    pub fn close(self: *const Self) !void {
+        const ret = c.thespian_unx_acceptor_close(self.handle);
+        if (ret < 0) return error.ThespianUnxAcceptorCloseFailed;
+    }
+
+    pub fn deinit(self: *const Self) void {
+        c.thespian_unx_acceptor_destroy(self.handle);
+    }
+};
+
+pub const unx_connector = struct {
+    handle: *c.struct_thespian_unx_connector_handle,
+
+    const Self = @This();
+
+    pub fn init(tag_: []const u8) !Self {
+        return .{ .handle = c.thespian_unx_connector_create(tag_) orelse return log_last_error(error.ThespianUnxConnectorInitFailed) };
+    }
+
+    pub fn connect(self: *const Self, path: []const u8, mode: unx_mode) !void {
+        const mval: u8 = @intCast(mode);
+        const ret = c.thespian_unx_connector_connect(self.handle, path, mval);
+        if (ret < 0) return error.ThespianUnxConnectorConnectFailed;
+    }
+
+    pub fn cancel(self: *const Self) !void {
+        const ret = c.thespian_unx_connector_cancel(self.handle);
+        if (ret < 0) return error.ThespianUnxConnectorCancelFailed;
+    }
+
+    pub fn deinit(self: *const Self) void {
+        c.thespian_unx_connector_destroy(self.handle);
     }
 };
 

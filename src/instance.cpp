@@ -1396,6 +1396,22 @@ void connector::connect(string_view path, mode m) { ref->connect(path, m); }
 
 void connector::cancel() { ref->cancel(); }
 
+// C API helpers - must be defined where acceptor_impl/connector_impl are
+// complete
+
+void acceptor_listen(acceptor_impl *h, std::string_view path, mode m) {
+  h->listen(path, m);
+}
+void acceptor_close(acceptor_impl *h) { h->close(); }
+
+void connector_connect(connector_impl *h, std::string_view path, mode m) {
+  h->connect(path, m);
+}
+void connector_cancel(connector_impl *h) { h->cancel(); }
+
+void destroy_acceptor(acceptor_impl *h) { delete h; }
+void destroy_connector(connector_impl *h) { delete h; }
+
 } // namespace unx
 
 namespace endpoint {
