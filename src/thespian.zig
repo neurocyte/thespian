@@ -9,7 +9,6 @@ const c = @cImport({
     @cInclude("thespian/c/unx.h");
     @cInclude("thespian/c/tcp.h");
     @cInclude("thespian/c/socket.h");
-    @cInclude("netinet/in.h");
 });
 const c_posix = if (builtin.os.tag != .windows) @cImport({
     @cInclude("thespian/backtrace.h");
@@ -22,6 +21,9 @@ const log = std.log.scoped(.thespian);
 pub var stack_trace_on_errors: bool = false;
 
 pub const subprocess = if (builtin.os.tag == .windows) @import("subprocess_windows.zig") else @import("subprocess.zig");
+
+pub const in6_addr = [16]u8;
+pub const in6addr_loopback: in6_addr = [_]u8{0} ** 15 ++ [_]u8{1};
 
 pub const install_debugger = c.install_debugger;
 pub const install_remote_debugger = c.install_remote_debugger;
@@ -745,7 +747,7 @@ pub const metronome = struct {
     }
 };
 
-pub const unx_mode = enum(u8) {
+pub const unx_mode = enum(c_uint) {
     file = 0,
     abstract = 1,
 };
@@ -755,13 +757,12 @@ pub const unx_acceptor = struct {
 
     const Self = @This();
 
-    pub fn init(tag_: []const u8) !Self {
-        return .{ .handle = c.thespian_unx_acceptor_create(tag_) orelse return log_last_error(error.ThespianUnxAcceptorInitFailed) };
+    pub fn init(tag_: [:0]const u8) !Self {
+        return .{ .handle = c.thespian_unx_acceptor_create(tag_.ptr) orelse return log_last_error(error.ThespianUnxAcceptorInitFailed) };
     }
 
-    pub fn listen(self: *const Self, path: []const u8, mode: unx_mode) !void {
-        const mval: u8 = @intCast(mode);
-        const ret = c.thespian_unx_acceptor_listen(self.handle, path, mval);
+    pub fn listen(self: *const Self, path: [:0]const u8, mode: unx_mode) !void {
+        const ret = c.thespian_unx_acceptor_listen(self.handle, path.ptr, @intFromEnum(mode));
         if (ret < 0) return error.ThespianUnxAcceptorListenFailed;
     }
 
@@ -780,13 +781,12 @@ pub const unx_connector = struct {
 
     const Self = @This();
 
-    pub fn init(tag_: []const u8) !Self {
-        return .{ .handle = c.thespian_unx_connector_create(tag_) orelse return log_last_error(error.ThespianUnxConnectorInitFailed) };
+    pub fn init(tag_: [:0]const u8) !Self {
+        return .{ .handle = c.thespian_unx_connector_create(tag_.ptr) orelse return log_last_error(error.ThespianUnxConnectorInitFailed) };
     }
 
-    pub fn connect(self: *const Self, path: []const u8, mode: unx_mode) !void {
-        const mval: u8 = @intCast(mode);
-        const ret = c.thespian_unx_connector_connect(self.handle, path, mval);
+    pub fn connect(self: *const Self, path: [:0]const u8, mode: unx_mode) !void {
+        const ret = c.thespian_unx_connector_connect(self.handle, path.ptr, @intFromEnum(mode));
         if (ret < 0) return error.ThespianUnxConnectorConnectFailed;
     }
 
@@ -805,12 +805,12 @@ pub const tcp_acceptor = struct {
 
     const Self = @This();
 
-    pub fn init(tag_: []const u8) !Self {
-        return .{ .handle = c.thespian_tcp_acceptor_create(tag_) orelse return log_last_error(error.ThespianTcpAcceptorInitFailed) };
+    pub fn init(tag_: [:0]const u8) !Self {
+        return .{ .handle = c.thespian_tcp_acceptor_create(tag_.ptr) orelse return log_last_error(error.ThespianTcpAcceptorInitFailed) };
     }
 
-    pub fn listen(self: *const Self, ip: c.in6_addr, port: u16) !u16 {
-        const ret = c.thespian_tcp_acceptor_listen(self.handle, ip, port);
+    pub fn listen(self: *const Self, ip: in6_addr, port: u16) !u16 {
+        const ret = c.thespian_tcp_acceptor_listen(self.handle, @bitCast(ip), port);
         if (ret == 0) return error.ThespianTcpAcceptorListenFailed;
         return ret;
     }
@@ -830,12 +830,12 @@ pub const tcp_connector = struct {
 
     const Self = @This();
 
-    pub fn init(tag_: []const u8) !Self {
-        return .{ .handle = c.thespian_tcp_connector_create(tag_) orelse return log_last_error(error.ThespianTcpConnectorInitFailed) };
+    pub fn init(tag_: [:0]const u8) !Self {
+        return .{ .handle = c.thespian_tcp_connector_create(tag_.ptr) orelse return log_last_error(error.ThespianTcpConnectorInitFailed) };
     }
 
-    pub fn connect(self: *const Self, ip: c.in6_addr, port: u16) !void {
-        const ret = c.thespian_tcp_connector_connect(self.handle, ip, port);
+    pub fn connect(self: *const Self, ip: in6_addr, port: u16) !void {
+        const ret = c.thespian_tcp_connector_connect(self.handle, @bitCast(ip), port);
         if (ret < 0) return error.ThespianTcpConnectorConnectFailed;
     }
 
@@ -854,8 +854,8 @@ pub const socket = struct {
 
     const Self = @This();
 
-    pub fn init(tag_: []const u8, fd: i32) !Self {
-        return .{ .handle = c.thespian_socket_create(tag_, fd) orelse return log_last_error(error.ThespianSocketInitFailed) };
+    pub fn init(tag_: [:0]const u8, fd: i32) !Self {
+        return .{ .handle = c.thespian_socket_create(tag_.ptr, fd) orelse return log_last_error(error.ThespianSocketInitFailed) };
     }
 
     pub fn write(self: *const Self, data: []const u8) !void {
