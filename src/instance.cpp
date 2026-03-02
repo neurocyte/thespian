@@ -1136,6 +1136,16 @@ void socket::write(const vector<uint8_t> &data) { ref->write(data); }
 void socket::read() { ref->read(); }
 void socket::close() { ref->close(); }
 
+// C API helpers - visibility requires complete types
+
+void socket_write(socket_impl *h, string_view data) { h->write(data); }
+void socket_write_binary(socket_impl *h, const vector<uint8_t> &data) {
+  h->write(data);
+}
+void socket_read(socket_impl *h) { h->read(); }
+void socket_close(socket_impl *h) { h->close(); }
+void destroy_socket(socket_impl *h) { delete h; }
+
 namespace tcp {
 
 struct acceptor_impl {

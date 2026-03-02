@@ -113,6 +113,7 @@ extern "C" auto runtestcase(const char *name) -> int {
   tests["timeout_test"] = timeout_test;
   tests["unx_c_api"] = unx_c_api;
   tests["tcp_c_api"] = tcp_c_api;
+  tests["socket_c_api"] = socket_c_api;
 
   env_t env{};
   env_t log_env{};

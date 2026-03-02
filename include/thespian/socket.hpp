@@ -26,4 +26,12 @@ struct socket {
   socket_ref ref;
 };
 
+// C++ helpers used by the C binding layer
+
+void socket_write(socket_impl *h, std::string_view data);
+void socket_write_binary(socket_impl *h, const std::vector<uint8_t> &data);
+void socket_read(socket_impl *h);
+void socket_close(socket_impl *h);
+void destroy_socket(socket_impl *h);
+
 } // namespace thespian

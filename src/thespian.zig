@@ -8,6 +8,7 @@ const c = @cImport({
     @cInclude("thespian/c/signal.h");
     @cInclude("thespian/c/unx.h");
     @cInclude("thespian/c/tcp.h");
+    @cInclude("thespian/c/socket.h");
     @cInclude("netinet/in.h");
 });
 const c_posix = if (builtin.os.tag != .windows) @cImport({
@@ -845,6 +846,40 @@ pub const tcp_connector = struct {
 
     pub fn deinit(self: *const Self) void {
         c.thespian_tcp_connector_destroy(self.handle);
+    }
+};
+
+pub const socket = struct {
+    handle: *c.struct_thespian_socket_handle,
+
+    const Self = @This();
+
+    pub fn init(tag_: []const u8, fd: i32) !Self {
+        return .{ .handle = c.thespian_socket_create(tag_, fd) orelse return log_last_error(error.ThespianSocketInitFailed) };
+    }
+
+    pub fn write(self: *const Self, data: []const u8) !void {
+        const ret = c.thespian_socket_write(self.handle, data.ptr, data.len);
+        if (ret < 0) return error.ThespianSocketWriteFailed;
+    }
+
+    pub fn write_binary(self: *const Self, data: []const u8) !void {
+        const ret = c.thespian_socket_write_binary(self.handle, data.ptr, data.len);
+        if (ret < 0) return error.ThespianSocketWriteBinaryFailed;
+    }
+
+    pub fn read(self: *const Self) !void {
+        const ret = c.thespian_socket_read(self.handle);
+        if (ret < 0) return error.ThespianSocketReadFailed;
+    }
+
+    pub fn close(self: *const Self) !void {
+        const ret = c.thespian_socket_close(self.handle);
+        if (ret < 0) return error.ThespianSocketCloseFailed;
+    }
+
+    pub fn deinit(self: *const Self) void {
+        c.thespian_socket_destroy(self.handle);
     }
 };
 
