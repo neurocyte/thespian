@@ -1267,6 +1267,21 @@ void connector::connect(in6_addr ip, port_t port, in6_addr lip, port_t lport) {
 
 void connector::cancel() { ref->cancel(); }
 
+// C API helpers - visibility requires complete types
+
+auto acceptor_listen(acceptor_impl *h, const in6_addr &ip, port_t port)
+    -> port_t {
+  return h->listen(ip, port);
+}
+void acceptor_close(acceptor_impl *h) { h->close(); }
+void destroy_acceptor(acceptor_impl *h) { delete h; }
+
+void connector_connect(connector_impl *h, const in6_addr &ip, port_t port) {
+  h->connect(ip, port, in6addr_any, 0);
+}
+void connector_cancel(connector_impl *h) { h->cancel(); }
+void destroy_connector(connector_impl *h) { delete h; }
+
 } // namespace tcp
 
 namespace unx {

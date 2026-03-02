@@ -7,6 +7,8 @@ const c = @cImport({
     @cInclude("thespian/c/timeout.h");
     @cInclude("thespian/c/signal.h");
     @cInclude("thespian/c/unx.h");
+    @cInclude("thespian/c/tcp.h");
+    @cInclude("netinet/in.h");
 });
 const c_posix = if (builtin.os.tag != .windows) @cImport({
     @cInclude("thespian/backtrace.h");
@@ -794,6 +796,55 @@ pub const unx_connector = struct {
 
     pub fn deinit(self: *const Self) void {
         c.thespian_unx_connector_destroy(self.handle);
+    }
+};
+
+pub const tcp_acceptor = struct {
+    handle: *c.struct_thespian_tcp_acceptor_handle,
+
+    const Self = @This();
+
+    pub fn init(tag_: []const u8) !Self {
+        return .{ .handle = c.thespian_tcp_acceptor_create(tag_) orelse return log_last_error(error.ThespianTcpAcceptorInitFailed) };
+    }
+
+    pub fn listen(self: *const Self, ip: c.in6_addr, port: u16) !u16 {
+        const ret = c.thespian_tcp_acceptor_listen(self.handle, ip, port);
+        if (ret == 0) return error.ThespianTcpAcceptorListenFailed;
+        return ret;
+    }
+
+    pub fn close(self: *const Self) !void {
+        const ret = c.thespian_tcp_acceptor_close(self.handle);
+        if (ret < 0) return error.ThespianTcpAcceptorCloseFailed;
+    }
+
+    pub fn deinit(self: *const Self) void {
+        c.thespian_tcp_acceptor_destroy(self.handle);
+    }
+};
+
+pub const tcp_connector = struct {
+    handle: *c.struct_thespian_tcp_connector_handle,
+
+    const Self = @This();
+
+    pub fn init(tag_: []const u8) !Self {
+        return .{ .handle = c.thespian_tcp_connector_create(tag_) orelse return log_last_error(error.ThespianTcpConnectorInitFailed) };
+    }
+
+    pub fn connect(self: *const Self, ip: c.in6_addr, port: u16) !void {
+        const ret = c.thespian_tcp_connector_connect(self.handle, ip, port);
+        if (ret < 0) return error.ThespianTcpConnectorConnectFailed;
+    }
+
+    pub fn cancel(self: *const Self) !void {
+        const ret = c.thespian_tcp_connector_cancel(self.handle);
+        if (ret < 0) return error.ThespianTcpConnectorCancelFailed;
+    }
+
+    pub fn deinit(self: *const Self) void {
+        c.thespian_tcp_connector_destroy(self.handle);
     }
 };
 

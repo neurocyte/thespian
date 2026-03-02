@@ -49,4 +49,15 @@ struct connector {
   connector_ref ref;
 };
 
+// C++ helpers used by the C binding layer
+
+auto acceptor_listen(acceptor_impl *h, const in6_addr &ip, port_t port)
+    -> port_t;
+void acceptor_close(acceptor_impl *h);
+void destroy_acceptor(acceptor_impl *h);
+
+void connector_connect(connector_impl *h, const in6_addr &ip, port_t port);
+void connector_cancel(connector_impl *h);
+void destroy_connector(connector_impl *h);
+
 } // namespace thespian::tcp
