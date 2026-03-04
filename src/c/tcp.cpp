@@ -2,6 +2,11 @@
 #include <thespian/c/tcp.h>
 #include <thespian/tcp.hpp>
 
+#include <cassert>
+
+#define ASSERT_HANDLE(h, fn) \
+    assert((h) != nullptr && "null handle passed to " fn ": was it created outside an actor?")
+
 using ::port_t;
 using thespian::tcp::acceptor_impl;
 using thespian::tcp::connector_impl;
@@ -24,6 +29,7 @@ auto thespian_tcp_acceptor_create(const char *tag)
 
 auto thespian_tcp_acceptor_listen(struct thespian_tcp_acceptor_handle *handle,
                                   in6_addr ip, uint16_t port) -> uint16_t {
+  ASSERT_HANDLE(handle, "thespian_tcp_acceptor_listen");
   try {
     port_t p = thespian::tcp::acceptor_listen(
         reinterpret_cast<acceptor_impl *>(handle), ip, port); // NOLINT
@@ -39,6 +45,7 @@ auto thespian_tcp_acceptor_listen(struct thespian_tcp_acceptor_handle *handle,
 
 auto thespian_tcp_acceptor_close(struct thespian_tcp_acceptor_handle *handle)
     -> int {
+  ASSERT_HANDLE(handle, "thespian_tcp_acceptor_close");
   try {
     thespian::tcp::acceptor_close(
         reinterpret_cast<acceptor_impl *>(handle)); // NOLINT
@@ -54,6 +61,7 @@ auto thespian_tcp_acceptor_close(struct thespian_tcp_acceptor_handle *handle)
 
 void thespian_tcp_acceptor_destroy(
     struct thespian_tcp_acceptor_handle *handle) {
+  ASSERT_HANDLE(handle, "thespian_tcp_acceptor_destroy");
   try {
     thespian::tcp::destroy_acceptor(
         reinterpret_cast<acceptor_impl *>(handle)); // NOLINT
@@ -82,6 +90,7 @@ auto thespian_tcp_connector_create(const char *tag)
 auto thespian_tcp_connector_connect(
     struct thespian_tcp_connector_handle *handle, in6_addr ip, uint16_t port)
     -> int {
+  ASSERT_HANDLE(handle, "thespian_tcp_connector_connect");
   try {
     thespian::tcp::connector_connect(
         reinterpret_cast<connector_impl *>(handle), // NOLINT
@@ -98,6 +107,7 @@ auto thespian_tcp_connector_connect(
 
 auto thespian_tcp_connector_cancel(struct thespian_tcp_connector_handle *handle)
     -> int {
+  ASSERT_HANDLE(handle, "thespian_tcp_connector_cancel");
   try {
     thespian::tcp::connector_cancel(
         reinterpret_cast<connector_impl *>(handle)); // NOLINT
@@ -113,6 +123,7 @@ auto thespian_tcp_connector_cancel(struct thespian_tcp_connector_handle *handle)
 
 void thespian_tcp_connector_destroy(
     struct thespian_tcp_connector_handle *handle) {
+  ASSERT_HANDLE(handle, "thespian_tcp_connector_destroy");
   try {
     thespian::tcp::destroy_connector(
         reinterpret_cast<connector_impl *>(handle)); // NOLINT

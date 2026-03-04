@@ -2,6 +2,12 @@
 #include <thespian/c/unx.h>
 #include <thespian/unx.hpp>
 
+#include <cassert>
+
+#define ASSERT_HANDLE(h, fn) \
+    assert((h) != nullptr && "null handle passed to " fn ": was it created outside an actor?")
+
+
 using thespian::unx::acceptor_impl;
 using thespian::unx::connector_impl;
 using thespian::unx::mode;
@@ -31,6 +37,7 @@ auto thespian_unx_acceptor_create(const char *tag)
 auto thespian_unx_acceptor_listen(struct thespian_unx_acceptor_handle *handle,
                                   const char *path, thespian_unx_mode m)
     -> int {
+  ASSERT_HANDLE(handle, "thespian_unx_acceptor_listen");
   try {
     thespian::unx::acceptor_listen(
         reinterpret_cast<acceptor_impl *>(handle), // NOLINT
@@ -47,6 +54,7 @@ auto thespian_unx_acceptor_listen(struct thespian_unx_acceptor_handle *handle,
 
 auto thespian_unx_acceptor_close(struct thespian_unx_acceptor_handle *handle)
     -> int {
+  ASSERT_HANDLE(handle, "thespian_unx_acceptor_close");
   try {
     thespian::unx::acceptor_close(
         reinterpret_cast<acceptor_impl *>(handle)); // NOLINT
@@ -62,6 +70,7 @@ auto thespian_unx_acceptor_close(struct thespian_unx_acceptor_handle *handle)
 
 void thespian_unx_acceptor_destroy(
     struct thespian_unx_acceptor_handle *handle) {
+  ASSERT_HANDLE(handle, "thespian_unx_acceptor_destroy");
   try {
     thespian::unx::destroy_acceptor(
         reinterpret_cast<acceptor_impl *>(handle)); // NOLINT
@@ -90,6 +99,7 @@ auto thespian_unx_connector_create(const char *tag)
 auto thespian_unx_connector_connect(
     struct thespian_unx_connector_handle *handle, const char *path,
     thespian_unx_mode m) -> int {
+  ASSERT_HANDLE(handle, "thespian_unx_connector_connect");
   try {
     thespian::unx::connector_connect(
         reinterpret_cast<connector_impl *>(handle), // NOLINT
@@ -106,6 +116,7 @@ auto thespian_unx_connector_connect(
 
 auto thespian_unx_connector_cancel(struct thespian_unx_connector_handle *handle)
     -> int {
+  ASSERT_HANDLE(handle, "thespian_unx_connector_cancel");
   try {
     thespian::unx::connector_cancel(
         reinterpret_cast<connector_impl *>(handle)); // NOLINT
@@ -121,6 +132,7 @@ auto thespian_unx_connector_cancel(struct thespian_unx_connector_handle *handle)
 
 void thespian_unx_connector_destroy(
     struct thespian_unx_connector_handle *handle) {
+  ASSERT_HANDLE(handle, "thespian_unx_connector_destroy");
   try {
     thespian::unx::destroy_connector(
         reinterpret_cast<connector_impl *>(handle)); // NOLINT
