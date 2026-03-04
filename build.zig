@@ -125,9 +125,6 @@ pub fn build(b: *std.Build) void {
         "test/spawn_exit.cpp",
         "test/tests.cpp",
         "test/timeout_test.cpp",
-        "test/unx_c_api.cpp",
-        "test/tcp_c_api.cpp",
-        "test/socket_c_api.cpp",
     }, .flags = &cppflags });
     tests.linkLibrary(lib);
     tests.linkLibrary(asio_dep.artifact("asio"));

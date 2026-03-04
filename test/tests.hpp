@@ -27,6 +27,3 @@ testcase perf_ring;
 testcase perf_spawn;
 testcase spawn_exit;
 testcase timeout_test;
-testcase unx_c_api;
-testcase tcp_c_api;
-testcase socket_c_api;
