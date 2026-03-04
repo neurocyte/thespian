@@ -116,6 +116,7 @@ pub fn build(b: *std.Build) void {
         "test/endpoint_tcp.cpp",
         "test/hub_filter.cpp",
         "test/ip_tcp_client_server.cpp",
+        "test/ip_tcp_client_server_c.cpp",
         "test/ip_udp_echo.cpp",
         "test/metronome_test.cpp",
         "test/perf_cbor.cpp",

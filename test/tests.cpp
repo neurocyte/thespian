@@ -103,6 +103,7 @@ extern "C" auto runtestcase(const char *name) -> int {
   tests["endpoint_tcp"] = endpoint_tcp;
   tests["hub_filter"] = hub_filter;
   tests["ip_tcp_client_server"] = ip_tcp_client_server;
+  tests["ip_tcp_client_server_c"] = ip_tcp_client_server_c;
   tests["ip_udp_echo"] = ip_udp_echo;
   tests["metronome_test"] = metronome_test;
   tests["perf_cbor"] = perf_cbor;

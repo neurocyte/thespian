@@ -19,6 +19,7 @@ testcase endpoint_tcp;
 testcase endpoint_unx;
 testcase hub_filter;
 testcase ip_tcp_client_server;
+testcase ip_tcp_client_server_c;
 testcase ip_udp_echo;
 testcase metronome_test;
 testcase perf_cbor;

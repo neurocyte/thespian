@@ -35,6 +35,10 @@ test "ip_tcp_client_server" {
     try testcase("ip_tcp_client_server");
 }
 
+test "ip_tcp_client_server_c" {
+    try testcase("ip_tcp_client_server_c");
+}
+
 test "ip_udp_echo" {
     try testcase("ip_udp_echo");
 }
