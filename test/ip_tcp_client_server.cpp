@@ -52,17 +52,14 @@ struct client_connection {
 
   auto receive(const buffer &m) {
     int written{};
-    int err{};
     string_view buf{};
 
     if (m("socket", "client_connection", "read_complete", extract(buf))) {
       check(buf == "ping");
-      check(err == 0);
       socket.write("pong");
     } else if (m("socket", "client_connection", "write_complete",
                  extract(written))) {
       check(written == 4);
-      check(err == 0);
       // socket.close(); // let server close
     } else if (m("socket", "client_connection", "closed")) {
       auto ret = connector.send("client_connection", "done");
@@ -130,17 +127,14 @@ struct server_connection {
 
   auto receive(const buffer &m) {
     int written{};
-    int err{};
     string_view buf{};
 
     if (m("socket", "server_connection", "write_complete", extract(written))) {
       check(written == 4);
-      check(err == 0);
       socket.read();
     } else if (m("socket", "server_connection", "read_complete",
                  extract(buf))) {
       check(buf == "pong");
-      check(err == 0);
       socket.close();
     } else if (m("socket", "server_connection", "closed")) {
       auto ret = server.send("server_connection", "done");

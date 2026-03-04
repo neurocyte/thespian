@@ -66,3 +66,13 @@ test "spawn_exit" {
 test "timeout_test" {
     try testcase("timeout_test");
 }
+
+test "unx_c_api" {
+    try testcase("unx_c_api");
+}
+test "tcp_c_api" {
+    try testcase("tcp_c_api");
+}
+test "socket_c_api" {
+    try testcase("socket_c_api");
+}
