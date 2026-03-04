@@ -16,6 +16,8 @@ typedef void (*thespian_receiver_dtor)(thespian_behaviour_state);
 void thespian_receive(thespian_receiver, thespian_behaviour_state,
                       thespian_receiver_dtor);
 
+thespian_result thespian_exit(const char *status);
+
 bool thespian_get_trap();
 bool thespian_set_trap(bool);
 void thespian_link(thespian_handle);

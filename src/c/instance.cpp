@@ -33,6 +33,20 @@ void thespian_receive(thespian_receiver r, thespian_behaviour_state s,
 auto thespian_get_trap() -> bool { return thespian::trap(); }
 auto thespian_set_trap(bool on) -> bool { return thespian::trap(on); }
 
+namespace {
+thread_local cbor::buffer exit_msg_buf;     // NOLINT
+thread_local thespian_error exit_error_buf; // NOLINT
+} // namespace
+
+auto thespian_exit(const char *status) -> thespian_result {
+  auto r = thespian::exit(status);
+  if (r)
+    return nullptr;
+  exit_msg_buf = r.error();
+  exit_error_buf = {exit_msg_buf.data(), exit_msg_buf.size()};
+  return &exit_error_buf;
+}
+
 void thespian_link(thespian_handle h) {
   thespian::handle *h_{
       reinterpret_cast<thespian::handle *>( // NOLINT(*-reinterpret-cast)
