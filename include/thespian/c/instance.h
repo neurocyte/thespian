@@ -11,8 +11,10 @@ extern "C" {
 
 typedef thespian_result (*thespian_receiver)(thespian_behaviour_state,
                                              thespian_handle from, cbor_buffer);
+typedef void (*thespian_receiver_dtor)(thespian_behaviour_state);
 
-void thespian_receive(thespian_receiver, thespian_behaviour_state);
+void thespian_receive(thespian_receiver, thespian_behaviour_state,
+                      thespian_receiver_dtor);
 
 bool thespian_get_trap();
 bool thespian_set_trap(bool);

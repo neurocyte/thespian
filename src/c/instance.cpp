@@ -7,11 +7,19 @@ using std::string_view;
 
 extern "C" {
 
-void thespian_receive(thespian_receiver r, thespian_behaviour_state s) {
-  thespian::receive([r, s](auto from, cbor::buffer msg) -> thespian::result {
+void thespian_receive(thespian_receiver r, thespian_behaviour_state s,
+                      thespian_receiver_dtor dtor) {
+  struct receiver_wrapper {
+    thespian_receiver r;
+    thespian_behaviour_state s;
+    thespian_receiver_dtor dtor;
+    ~receiver_wrapper() { dtor(s); }
+  };
+  auto wrapper = std::make_shared<receiver_wrapper>(r, s, dtor);
+  thespian::receive([wrapper](auto from, cbor::buffer msg) -> thespian::result {
     thespian_handle from_handle = reinterpret_cast<thespian_handle>( // NOLINT
         &from);
-    auto *ret = r(s, from_handle, {msg.data(), msg.size()});
+    auto *ret = wrapper->r(wrapper->s, from_handle, {msg.data(), msg.size()});
     if (ret) {
       auto err = cbor::buffer();
       const uint8_t *data = ret->base;
