@@ -43,8 +43,9 @@ static thespian_result send(thespian_handle h, cbor::buffer msg) {
 // ---------------------------------------------------------------------------
 
 struct cc_state {
-  thespian_socket_handle *sock;
+  thespian_socket_handle *sock{};
   thespian_handle client;
+  int fd;
 };
 
 static void cc_dtor(thespian_behaviour_state s) {
@@ -68,12 +69,15 @@ static thespian_result cc_receive(thespian_behaviour_state s, thespian_handle,
   } else if (msg_extract_int(
                  m, "[\"socket\",\"client_connection\",\"write_complete\",%d]",
                  &written)) {
-    LOG("cc_receive: write_complete written=%d\n", written);
+    LOG("cc_receive: write_complete written=%d, waiting for close\n", written);
     thespian_socket_read(st->sock);
-  } else if (msg_is(m, "[\"socket\",\"client_connection\",\"closed\"]")) {
+  } else if (msg_is(
+                 m,
+                 "[\"socket\",\"client_connection\",\"read_complete\",\"\"]") ||
+             msg_is(m, "[\"socket\",\"client_connection\",\"closed\"]")) {
     LOG("cc_receive: closed, sending done\n");
     send(st->client, cbor::array("client_connection", "done"));
-    return thespian_exit("success");
+    return thespian_exit("normal");
   } else {
     LOG("cc_receive: UNEXPECTED msg=%s\n", msg_json);
   }
@@ -83,6 +87,7 @@ static thespian_result cc_receive(thespian_behaviour_state s, thespian_handle,
 static thespian_result cc_start(thespian_behaviour_state s) {
   LOG("cc_start entered\n");
   auto *st = static_cast<cc_state *>(s);
+  st->sock = thespian_socket_create("client_connection", st->fd);
   thespian_socket_read(st->sock);
   thespian_receive(cc_receive, s, cc_dtor);
   LOG("cc_start returning\n");
@@ -115,8 +120,8 @@ static thespian_result client_receive(thespian_behaviour_state s,
   int fd = 0;
   if (msg_extract_int(m, "[\"connector\",\"client\",\"connected\",%d]", &fd)) {
     LOG("client_receive: connected fd=%d, spawning cc\n", fd);
-    auto *cc = new cc_state{thespian_socket_create("client_connection", fd),
-                            thespian_handle_clone(thespian_self())};
+    auto *cc =
+        new cc_state{nullptr, thespian_handle_clone(thespian_self()), fd};
     thespian_handle out{};
     thespian_spawn_link(cc_start, cc, "client_connection", nullptr, &out);
     thespian_handle_destroy(out);
@@ -134,6 +139,7 @@ static thespian_result client_receive(thespian_behaviour_state s,
 static thespian_result client_start(thespian_behaviour_state s) {
   auto *st = static_cast<client_state *>(s);
   LOG("client_start entered port=%d\n", st->port);
+  st->connector = thespian_tcp_connector_create("client");
   thespian_tcp_connector_connect(st->connector, in6addr_loopback, st->port);
   thespian_receive(client_receive, s, client_dtor);
   LOG("client_start returning\n");
@@ -145,8 +151,9 @@ static thespian_result client_start(thespian_behaviour_state s) {
 // ---------------------------------------------------------------------------
 
 struct sc_state {
-  thespian_socket_handle *sock;
+  thespian_socket_handle *sock{};
   thespian_handle server;
+  int fd;
 };
 
 static void sc_dtor(thespian_behaviour_state s) {
@@ -175,7 +182,7 @@ static thespian_result sc_receive(thespian_behaviour_state s, thespian_handle,
   } else if (msg_is(m, "[\"socket\",\"server_connection\",\"closed\"]")) {
     LOG("sc_receive: closed, sending done\n");
     send(st->server, cbor::array("server_connection", "done"));
-    return thespian_exit("success");
+    return thespian_exit("normal");
   } else {
     LOG("sc_receive: UNEXPECTED msg=%s\n", msg_json);
   }
@@ -185,6 +192,7 @@ static thespian_result sc_receive(thespian_behaviour_state s, thespian_handle,
 static thespian_result sc_start(thespian_behaviour_state s) {
   LOG("sc_start entered\n");
   auto *st = static_cast<sc_state *>(s);
+  st->sock = thespian_socket_create("server_connection", st->fd);
   thespian_socket_write(st->sock, "ping", 4);
   thespian_receive(sc_receive, s, sc_dtor);
   LOG("sc_start returning\n");
@@ -217,8 +225,8 @@ static thespian_result server_receive(thespian_behaviour_state s,
   int fd = 0;
   if (msg_extract_int(m, "[\"acceptor\",\"server\",\"accept\",%d]", &fd)) {
     LOG("server_receive: accept fd=%d, spawning sc\n", fd);
-    auto *sc = new sc_state{thespian_socket_create("server_connection", fd),
-                            thespian_handle_clone(thespian_self())};
+    auto *sc =
+        new sc_state{nullptr, thespian_handle_clone(thespian_self()), fd};
     thespian_handle out{};
     thespian_spawn_link(sc_start, sc, "server_connection", nullptr, &out);
     thespian_handle_destroy(out);
@@ -249,13 +257,17 @@ static thespian_result server_receive(thespian_behaviour_state s,
 static thespian_result server_start(thespian_behaviour_state s) {
   LOG("server_start entered\n");
   auto *st = static_cast<server_state *>(s);
+  thespian_handle log = thespian_env_proc(thespian_env_get(), {"log", 3});
+  if (log) {
+    thespian_link(log);
+  }
   st->acceptor = thespian_tcp_acceptor_create("server");
   uint16_t port =
       thespian_tcp_acceptor_listen(st->acceptor, in6addr_loopback, 0);
   LOG("server_start: listening on port=%d\n", port);
 
-  auto *cl = new client_state{thespian_tcp_connector_create("client"),
-                              thespian_handle_clone(thespian_self()), port};
+  auto *cl =
+      new client_state{nullptr, thespian_handle_clone(thespian_self()), port};
   thespian_handle out{};
   thespian_spawn_link(client_start, cl, "client", nullptr, &out);
   thespian_handle_destroy(out);
@@ -271,7 +283,7 @@ static thespian_result server_start(thespian_behaviour_state s) {
 // ---------------------------------------------------------------------------
 
 auto ip_tcp_client_server_c(thespian::context &ctx, bool &result,
-                            thespian::env_t /*env*/) -> thespian::result {
+                            thespian::env_t env) -> thespian::result {
   auto *st = new server_state{};
   thespian_handle out{};
   thespian_context_spawn_link(
@@ -282,7 +294,9 @@ auto ip_tcp_client_server_c(thespian::context &ctx, bool &result,
         if (strncmp(msg, "success", len) == 0)
           *static_cast<bool *>(r) = true;
       },
-      &result, "ip_tcp_client_server_c", nullptr, &out);
+      &result, "ip_tcp_client_server_c",
+      reinterpret_cast<thespian_env>(&env), // NOLINT
+      &out);
   thespian_handle_destroy(out);
   return thespian::ok();
 }
