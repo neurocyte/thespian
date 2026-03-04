@@ -17,6 +17,7 @@ void thespian_receive(thespian_receiver, thespian_behaviour_state,
                       thespian_receiver_dtor);
 
 thespian_result thespian_exit(const char *status);
+thespian_result thespian_unexpected(cbor_buffer msg);
 
 bool thespian_get_trap();
 bool thespian_set_trap(bool);

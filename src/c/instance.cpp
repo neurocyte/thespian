@@ -47,6 +47,18 @@ auto thespian_exit(const char *status) -> thespian_result {
   return &exit_error_buf;
 }
 
+auto thespian_unexpected(cbor_buffer m) -> thespian_result {
+  cbor::buffer buf;
+  const uint8_t *data = m.base;
+  std::copy(data, data + m.len, back_inserter(buf)); // NOLINT
+  auto r = thespian::unexpected(buf);
+  if (r)
+    return nullptr;
+  exit_msg_buf = r.error();
+  exit_error_buf = {exit_msg_buf.data(), exit_msg_buf.size()};
+  return &exit_error_buf;
+}
+
 void thespian_link(thespian_handle h) {
   thespian::handle *h_{
       reinterpret_cast<thespian::handle *>( // NOLINT(*-reinterpret-cast)

@@ -79,7 +79,7 @@ static thespian_result cc_receive(thespian_behaviour_state s, thespian_handle,
     send(st->client, cbor::array("client_connection", "done"));
     return thespian_exit("normal");
   } else {
-    LOG("cc_receive: UNEXPECTED msg=%s\n", msg_json);
+    return thespian_unexpected(m);
   }
   return nullptr;
 }
@@ -131,7 +131,7 @@ static thespian_result client_receive(thespian_behaviour_state s,
     send(st->server, cbor::array("client", "done"));
     return thespian_exit("normal");
   } else {
-    LOG("client_receive: UNEXPECTED msg=%s\n", msg_json);
+    return thespian_unexpected(m);
   }
   return nullptr;
 }
@@ -184,7 +184,7 @@ static thespian_result sc_receive(thespian_behaviour_state s, thespian_handle,
     send(st->server, cbor::array("server_connection", "done"));
     return thespian_exit("normal");
   } else {
-    LOG("sc_receive: UNEXPECTED msg=%s\n", msg_json);
+    return thespian_unexpected(m);
   }
   return nullptr;
 }
@@ -245,7 +245,7 @@ static thespian_result server_receive(thespian_behaviour_state s,
         st->acceptor_closed, st->client_done);
     st->server_conn_done = true;
   } else {
-    LOG("server_receive: UNEXPECTED msg=%s\n", msg_json);
+    return thespian_unexpected(m);
   }
   if (st->acceptor_closed && st->client_done && st->server_conn_done) {
     LOG("server_receive: all done, exiting success\n");
