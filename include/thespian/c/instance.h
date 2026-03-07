@@ -28,6 +28,9 @@ thespian_handle thespian_self();
 int thespian_spawn_link(thespian_behaviour, thespian_behaviour_state,
                         const char *name, thespian_env, thespian_handle *);
 
+int thespian_spawn(thespian_behaviour, thespian_behaviour_state,
+                   const char *name, thespian_env, thespian_handle *);
+
 #ifdef __cplusplus
 }
 #endif

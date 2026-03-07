@@ -576,6 +576,28 @@ pub fn spawn_link(
     return spawn_link_env(a, data, f, name, env.get());
 }
 
+/// Spawn a new actor WITHOUT creating a link to the calling actor.
+/// The new actor runs independently; its exit does not propagate to the
+/// caller. Think twice before you use this form of spawn. It's rarely want
+/// you want to do.
+pub fn spawn(
+    a: std.mem.Allocator,
+    data: anytype,
+    f: Behaviour(@TypeOf(data)).FunT,
+    name: [:0]const u8,
+) error{ OutOfMemory, ThespianSpawnFailed }!pid {
+    const Tclosure = Behaviour(@TypeOf(data));
+    var handle_: c.thespian_handle = null;
+    try neg_to_error(c.thespian_spawn(
+        Tclosure.run,
+        try Tclosure.create(a, f, data),
+        name,
+        env.get().env,
+        &handle_,
+    ), error.ThespianSpawnFailed);
+    return wrap_pid(handle_);
+}
+
 pub fn spawn_link_env(
     a: std.mem.Allocator,
     data: anytype,

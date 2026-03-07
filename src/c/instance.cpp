@@ -96,4 +96,30 @@ auto thespian_spawn_link(thespian_behaviour b, thespian_behaviour_state s,
       new thespian::handle{ret.value()});
   return 0;
 }
+
+auto thespian_spawn(thespian_behaviour b, thespian_behaviour_state s,
+                    const char *name, thespian_env env, thespian_handle *handle)
+    -> int {
+  const thespian::env_t empty_env_{};
+  thespian::env_t env_ =
+      env ? *reinterpret_cast<thespian::env_t *>(env) : empty_env_; // NOLINT
+
+  auto ret = spawn(
+      [b, s]() -> thespian::result {
+        auto *ret = b(s);
+        if (ret) {
+          auto err = cbor::buffer();
+          const uint8_t *data = ret->base;                      // NOLINT
+          std::copy(data, data + ret->len, back_inserter(err)); // NOLINT
+          return thespian::to_error(err);
+        }
+        return thespian::ok();
+      },
+      string_view(name), std::move(env_));
+  if (!ret)
+    return -1;
+  *handle = reinterpret_cast<thespian_handle>( // NOLINT
+      new thespian::handle{ret.value()});
+  return 0;
+}
 }
