@@ -46,4 +46,13 @@ private:
 
 auto operator==(const handle &, const handle &) -> bool;
 
+/// Stable opaque actor identity: the raw instance pointer. Two handles for
+/// the same actor return the same value. Returns 0 for expired handles.
+[[nodiscard]] inline auto instance_id(const handle &h) -> uintptr_t {
+  // NOLINTNEXTLINE(*-reinterpret-cast)
+  if (auto sp = handle_ref(h).lock())
+    return reinterpret_cast<uintptr_t>(sp.get());
+  return 0;
+}
+
 } // namespace thespian

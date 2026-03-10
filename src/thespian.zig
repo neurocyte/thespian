@@ -112,6 +112,12 @@ fn Pid(comptime own: Ownership) type {
             return c.thespian_handle_is_expired(self.h);
         }
 
+        /// Stable opaque actor identity. Two handles for the same actor
+        /// return the same value. Returns 0 for a null/expired handle.
+        pub fn instance_id(self: Self) usize {
+            return c.thespian_handle_id(self.h);
+        }
+
         pub fn wait_expired(self: Self, timeout_ns: isize) error{Timeout}!void {
             var max_sleep: isize = timeout_ns;
             while (!self.expired()) {

@@ -66,4 +66,13 @@ auto thespian_handle_is_expired(thespian_handle h) -> bool {
           h)};
   return h_->expired();
 }
+
+auto thespian_handle_id(thespian_handle h) -> uintptr_t {
+  thespian::handle *h_{
+      reinterpret_cast<thespian::handle *>( // NOLINT(*-reinterpret-cast)
+          h)};
+  if (!h_)
+    return 0;
+  return thespian::instance_id(*h_);
+}
 }
