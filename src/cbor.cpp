@@ -12,6 +12,7 @@
 using std::back_inserter;
 using std::copy;
 using std::domain_error;
+using std::dec;
 using std::hex;
 using std::make_tuple;
 using std::numeric_limits;
@@ -767,7 +768,7 @@ auto buffer::match_value(iter &b, const iter &e, const extractor &ex) -> bool {
 
 namespace {
 static auto tohex(ostream &os, uint8_t v) -> ostream & {
-  return os << hex << setfill('0') << setw(2) << static_cast<unsigned>(v);
+  return os << hex << setfill('0') << setw(2) << static_cast<unsigned>(v) << dec;
 }
 
 static auto to_json(ostream &os, string_view s) -> ostream & {
