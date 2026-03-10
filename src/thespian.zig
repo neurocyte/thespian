@@ -431,6 +431,10 @@ pub const env = struct {
     }
 };
 
+pub fn trace_to_json_file(path: [*:0]const u8) void {
+    c.thespian_trace_to_json_file(path);
+}
+
 pub fn trace(chan: trace_channel, value: anytype) void {
     if (env.get().enabled(chan)) {
         if (@TypeOf(value) == message) {
