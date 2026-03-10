@@ -286,6 +286,7 @@ struct instance : std::enable_shared_from_this<instance> {
   }
 
   auto name() const -> const string & { return name_; }
+  auto instance_id() const -> uintptr_t { return instance_id_; }
 
   auto is_enabled(channel c) -> bool { return env_.enabled(c); }
 
@@ -542,18 +543,16 @@ auto operator==(const handle &a, const handle &b) -> bool {
 }
 
 namespace {
-auto ref_m(const void *p, string name) -> buffer {
-  stringstream ss;
-  ss << p;
-  return array("PID", ss.str(), move(name));
+auto ref_m(uintptr_t id, string name) -> buffer {
+  return array("PID", id, move(name));
 }
 
-auto ref_m(const instance *p) -> buffer { return ref_m(p, p->name()); }
+auto ref_m(const instance *p) -> buffer { return ref_m(p->instance_id(), p->name()); }
 
 auto ref_m(const ref &r) -> buffer {
   if (auto p = r.lock())
-    return ref_m(p.get(), p->name());
-  return ref_m(nullptr, "none");
+    return ref_m(p->instance_id(), p->name());
+  return ref_m(0, "none");
 }
 } // namespace
 
