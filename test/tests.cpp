@@ -11,6 +11,7 @@
 
 #include <csignal>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <map>
 #include <mutex>
@@ -20,6 +21,7 @@
 using cbor::buffer;
 using std::cerr;
 using std::cout;
+using std::ofstream;
 using std::lock_guard;
 using std::map;
 using std::move;
@@ -115,29 +117,42 @@ extern "C" auto runtestcase(const char *name) -> int {
 
   env_t env{};
   env_t log_env{};
+  ofstream trace_file;
   auto trace = [&](const buffer &buf) {
     const lock_guard<mutex> lock(trace_m);
-    cerr << buf.to_json() << '\n';
+    trace_file << buf.to_json() << '\n';
   };
-  log_env.on_trace(trace);
-  env.on_trace(trace);
   if (getenv("TRACE")) { // NOLINT
+    trace_file.open(string(name) + "_trace.json");
+    log_env.on_trace(trace);
+    env.on_trace(trace);
     thespian::debug::enable(*ctx);
     env.enable_all_channels();
     log_env.enable_all_channels();
   }
+  auto open_trace_file = [&] {
+    if (!trace_file.is_open()) {
+      trace_file.open(string(name) + "_trace.json");
+      log_env.on_trace(trace);
+      env.on_trace(trace);
+    }
+  };
   if (getenv("TRACE_LIFETIME")) { // NOLINT
+    open_trace_file();
     thespian::debug::enable(*ctx);
     env.enable(thespian::channel::lifetime);
     log_env.enable(thespian::channel::lifetime);
   }
   if (getenv("TRACE_EXECUTE")) { // NOLINT
+    open_trace_file();
     env.enable(thespian::channel::execute);
   }
   if (getenv("TRACE_SEND")) { // NOLINT
+    open_trace_file();
     env.enable(thespian::channel::send);
   }
   if (getenv("TRACE_RECEIVE")) { // NOLINT
+    open_trace_file();
     env.enable(thespian::channel::receive);
   }
 
