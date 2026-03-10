@@ -85,6 +85,8 @@ using namespace std::chrono_literals;
 
 namespace thespian {
 
+static atomic<uintptr_t> next_instance_id{1}; // NOLINT(*-avoid-non-const-global-variables)
+
 struct context_impl : context {
   explicit context_impl(executor::context executor)
       : executor{move(executor)} {}
@@ -236,6 +238,7 @@ struct instance : std::enable_shared_from_this<instance> {
   instance(context_impl &ctx, behaviour b, exit_handler eh, string_view name,
            env_t env)
       : ctx(ctx), strand_(ctx.executor.create_strand()), name_{name},
+        instance_id_{next_instance_id.fetch_add(1, memory_order_relaxed)},
         env_(move(env)) {
     if (eh)
       exit_handlers_.emplace_front(eh);
@@ -501,6 +504,7 @@ struct instance : std::enable_shared_from_this<instance> {
   context_impl &ctx;
   executor::strand strand_;
   string name_;
+  uintptr_t instance_id_;
   receiver receiver_;
   receiver exited_receiver_;
   sync_receiver sync_receiver_;
@@ -604,6 +608,12 @@ auto context::spawn_link(behaviour b, exit_handler eh, string_view name,
 auto context::spawn_link(behaviour b, exit_handler eh, string_view name)
     -> expected<handle, error> {
   return spawn_link(move(b), move(eh), name, env_t{});
+}
+
+auto instance_id(const handle &h) -> uintptr_t {
+  if (auto sp = handle_ref(h).lock())
+    return sp->instance_id_;
+  return 0;
 }
 
 auto env() -> env_t & { return private_call().env_; }
