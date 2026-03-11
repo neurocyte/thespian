@@ -771,24 +771,40 @@ struct timeout_impl {
       owner_.env_.trace(array("timeout", "set", m, us.count()));
 
     timer_.expires_after(us);
-    timer_.on_expired([this, start, m(move(m)),
-                       lifelock{owner_.lifetime_}](const error_code &error) {
-      if (is_trace_enabled())
-        owner_.env_.trace(array("timeout", "expired", m,
-                                clk::now().time_since_epoch().count() - start,
-                                error.value(), error.message()));
+    // Capture lifelock and dtor_cancelled instead of `this`.
+    // timeout_impl is owned by a unique_ptr and its destructor calls cancel();
+    // the ASIO callback is queued *after* ~timeout_impl returns, so `this`
+    // would be dangling.  lifelock keeps the instance alive; dtor_cancelled
+    // distinguishes destructor-triggered cancellation (where no notification
+    // is desired) from an explicit user cancel() call.
+    timer_.on_expired([lifelock{owner_.lifetime_},
+                       dtor_cancelled{dtor_cancelled_},
+                       start, m(move(m))](const error_code &error) {
+      if (!lifelock) return;
+      if (lifelock->env_.enabled(channel::timer))
+        lifelock->env_.trace(array("timeout", "expired", m,
+                                   clk::now().time_since_epoch().count() - start,
+                                   error.value(), error.message()));
       if (!error)
-        auto _ = owner_.send_raw(m);
-      else
-        auto _ = owner_.send_raw(
+        auto _ = lifelock->send_raw(m);
+      else if (!*dtor_cancelled)
+        // User called cancel() explicitly — preserve the existing timeout_error
+        // notification so callers can react (e.g. arm a different timer).
+        auto _ = lifelock->send_raw(
             exit_message("timeout_error", error.value(), error.message()));
     });
   }
-  ~timeout_impl() { cancel(); }
+  ~timeout_impl() {
+    *dtor_cancelled_ = true;
+    cancel();
+  }
   void cancel() { timer_.cancel(); }
 
   instance &owner_;
   executor::timer timer_;
+  // Shared with the timer callback so it can distinguish dtor cancellation
+  // from an explicit user cancel() without capturing `this`.
+  shared_ptr<bool> dtor_cancelled_{make_shared<bool>(false)};
 };
 void timeout::cancel() {
   if (ref)
