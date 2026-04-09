@@ -32,7 +32,7 @@ pub fn build(b: *std.Build) void {
     const mode = .{ .target = target, .optimize = optimize };
 
     const asio_dep = b.dependency("asio", mode);
-    const tracy_dep = if (tracy_enabled) b.dependency("tracy", mode) else undefined;
+    const tracy_dep = if (tracy_enabled) b.dependency("zig_tracy", mode) else undefined;
 
     const lib = b.addLibrary(.{
         .name = "thespian",
@@ -46,9 +46,9 @@ pub fn build(b: *std.Build) void {
         lib.root_module.addCMacro("TRACY_ENABLE", "1");
         lib.root_module.addCMacro("TRACY_CALLSTACK", "1");
     }
-    lib.addIncludePath(b.path("src"));
-    lib.addIncludePath(b.path("include"));
-    lib.addCSourceFiles(.{ .files = &[_][]const u8{
+    lib.root_module.addIncludePath(b.path("src"));
+    lib.root_module.addIncludePath(b.path("include"));
+    lib.root_module.addCSourceFiles(.{ .files = &[_][]const u8{
         "src/backtrace.cpp",
         "src/c/context.cpp",
         "src/c/env.cpp",
@@ -70,14 +70,14 @@ pub fn build(b: *std.Build) void {
         "src/trace.cpp",
     }, .flags = &cppflags });
     if (tracy_enabled) {
-        lib.linkLibrary(tracy_dep.artifact("tracy"));
+        lib.root_module.linkLibrary(tracy_dep.artifact("tracy"));
     }
-    lib.linkLibrary(asio_dep.artifact("asio"));
+    lib.root_module.linkLibrary(asio_dep.artifact("asio"));
     if (lib.rootModuleTarget().os.tag == .windows) {
-        lib.linkSystemLibrary("mswsock");
-        lib.linkSystemLibrary("ws2_32");
+        lib.root_module.linkSystemLibrary("mswsock", .{});
+        lib.root_module.linkSystemLibrary("ws2_32", .{});
     }
-    lib.linkLibCpp();
+    lib.root_module.link_libcpp = true;
     b.installArtifact(lib);
 
     const cbor_dep = b.dependency("cbor", .{
@@ -106,10 +106,10 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("cbor", cbor_mod);
     tests.root_module.addImport("thespian", thespian_mod);
-    tests.addIncludePath(b.path("test"));
-    tests.addIncludePath(b.path("src"));
-    tests.addIncludePath(b.path("include"));
-    tests.addCSourceFiles(.{ .files = &[_][]const u8{
+    tests.root_module.addIncludePath(b.path("test"));
+    tests.root_module.addIncludePath(b.path("src"));
+    tests.root_module.addIncludePath(b.path("include"));
+    tests.root_module.addCSourceFiles(.{ .files = &[_][]const u8{
         "test/cbor_match.cpp",
         "test/debug.cpp",
         "test/endpoint_unx.cpp",
@@ -127,9 +127,9 @@ pub fn build(b: *std.Build) void {
         "test/tests.cpp",
         "test/timeout_test.cpp",
     }, .flags = &cppflags });
-    tests.linkLibrary(lib);
-    tests.linkLibrary(asio_dep.artifact("asio"));
-    tests.linkLibCpp();
+    tests.root_module.linkLibrary(lib);
+    tests.root_module.linkLibrary(asio_dep.artifact("asio"));
+    tests.root_module.link_libcpp = true;
     b.installArtifact(tests);
 
     const test_run_cmd = b.addRunArtifact(tests);

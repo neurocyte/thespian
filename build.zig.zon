@@ -1,21 +1,21 @@
 .{
     .name = .thespian,
     .version = "0.0.1",
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.16.0-dev.3133+5ec8e45f3",
     .fingerprint = 0xe9ff00fd8e4e01a3,
 
     .dependencies = .{
         .cbor = .{
-            .url = "git+https://github.com/neurocyte/cbor?ref=zig-0.15#b6fc137250b7d3f70459652ee78c7b6cd9ad2826",
-            .hash = "cbor-1.0.0-RcQE_HwwAQAiNkKC9ezLxHUMkWgHeVa3QyTfv4hi3VZR",
+            .url = "git+https://github.com/neurocyte/cbor?ref=master#1b7cd3192552f5fd0b1679d535e5cd978794d13a",
+            .hash = "cbor-1.1.0-RcQE_DBMAQBrUYInw5H2ZYfBQT1Po-Y4LEwzUQYbtSJ5",
         },
         .asio = .{
-            .url = "git+https://github.com/neurocyte/asio#0f1cbf24e5fb6fabe7078a20b76452f42e24a0df",
-            .hash = "asio-1.30.2-tLhDd0SB4QB1041_DEW_1cvEw8eMfBYLAwjN_G53Fn66",
+            .url = "git+https://github.com/neurocyte/asio#824070c9385bf98d9de087af6c7992d7039e2836",
+            .hash = "asio-1.30.2-tLhDdxSC4QC8WGxqT0vKX1qp6y9UZyyC4yeAin4Krvmy",
         },
-        .tracy = .{
-            .url = "git+https://github.com/neurocyte/zig-tracy#67070c146104d93fd3bed5091738f22e33e13bce",
-            .hash = "zig_tracy-0.0.3-5-cp3Ht3AAAfHqShKfTK7waFK3Wjd3l2NheiqxvRRAdo",
+        .zig_tracy = .{
+            .url = "git+https://github.com/neurocyte/zig-tracy?ref=master#33baab18edde33cf132b778301634c87ada2aeef",
+            .hash = "zig_tracy-0.0.3-5-cp3Lx3AAD5wyipG-N0smFX-YdExc4efrN4KsFQFpG5",
         },
     },
     .paths = .{
