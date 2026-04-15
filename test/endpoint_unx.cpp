@@ -40,6 +40,14 @@ using namespace std::chrono_literals;
 #if !defined(_WIN32)
 namespace {
 
+// Linux supports abstract Unix sockets (null-byte prefix, no filesystem entry).
+// FreeBSD and macOS only support file-based Unix sockets.
+#if defined(__linux__)
+constexpr auto unx_socket_mode = mode::abstract;
+#else
+constexpr auto unx_socket_mode = mode::file;
+#endif
+
 struct controller {
   handle ep_listen;
   handle ep_connect;
@@ -59,7 +67,7 @@ struct controller {
       return ok();
     }
     if (m("path", extract(path))) {
-      ep_connect = connect(path).value();
+      ep_connect = connect(path, unx_socket_mode).value();
       return ok();
     }
     if (m("connected")) {
@@ -85,12 +93,12 @@ struct controller {
 
 auto endpoint_unx(context &ctx, bool &result, env_t env_) -> ::result {
   stringstream ss;
-  ss << "/net/vdbonline/thespian/endpoint_t_" << getpid();
+  ss << "/tmp/thespian_endpoint_t_" << getpid();
   const string path = ss.str();
   return to_result(ctx.spawn_link(
       [path]() {
         link(env().proc("log"));
-        handle ep_listen = listen(path).value();
+        handle ep_listen = listen(path, unx_socket_mode).value();
         receive([p{make_shared<controller>(ep_listen)}](const auto &from,
                                                         const auto &m) {
           return p->receive(from, m);

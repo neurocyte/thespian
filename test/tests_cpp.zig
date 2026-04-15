@@ -18,7 +18,7 @@ test "debug" {
 }
 
 test "endpoint_unx" {
-    if (builtin.os.tag == .linux) {
+    if (builtin.os.tag != .windows) {
         try testcase("endpoint_unx");
     }
 }
