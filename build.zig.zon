@@ -1,13 +1,13 @@
 .{
     .name = .thespian,
     .version = "0.0.1",
-    .minimum_zig_version = "0.16.0-dev.3133+5ec8e45f3",
+    .minimum_zig_version = "0.16.0",
     .fingerprint = 0xe9ff00fd8e4e01a3,
 
     .dependencies = .{
         .cbor = .{
-            .url = "git+https://github.com/neurocyte/cbor?ref=master#1b7cd3192552f5fd0b1679d535e5cd978794d13a",
-            .hash = "cbor-1.1.0-RcQE_DBMAQBrUYInw5H2ZYfBQT1Po-Y4LEwzUQYbtSJ5",
+            .url = "git+https://github.com/neurocyte/cbor?ref=master#8f37f71439f62b513b9d52a76d6af012395ee47c",
+            .hash = "cbor-1.2.0-RcQE_NtLAQCkBF-LFNB_XsGIycs6pjhCYicxEq0QzYfe",
         },
         .asio = .{
             .url = "git+https://github.com/neurocyte/asio#824070c9385bf98d9de087af6c7992d7039e2836",
