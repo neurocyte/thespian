@@ -13,6 +13,7 @@ const cppflags = [_][]const u8{
     "-Wno-deprecated-declarations",
     "-Wno-unqualified-std-cast-call",
     "-Wno-bitwise-instead-of-logical", //for notcurses
+    "-Wno-unused-command-line-argument", //zig passes -fno-rtlib-defaultlib when cross-compiling to windows
     "-fno-sanitize=undefined",
     "-gen-cdb-fragment-path",
     ".cache/cdb",

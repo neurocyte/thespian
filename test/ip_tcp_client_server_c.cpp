@@ -7,7 +7,9 @@
 #include <thespian/c/socket.h>
 #include <thespian/c/tcp.h>
 
+#ifndef _WIN32
 #include <netinet/in.h>
+#endif
 #include <string.h>
 
 // ---------------------------------------------------------------------------

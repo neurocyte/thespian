@@ -6,7 +6,11 @@ extern "C" {
 #endif
 
 #include <inttypes.h>
+#if defined(_WIN32)
+#include <ws2tcpip.h>
+#else
 #include <netinet/in.h>
+#endif
 #include <stdint.h>
 
 struct thespian_tcp_acceptor_handle;
