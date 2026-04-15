@@ -254,7 +254,7 @@ fn store_stack_trace(stack_trace: std.builtin.StackTrace, writer: *std.Io.Writer
             writer.print("Unable to store stack trace: debug info stripped\n", .{}) catch return;
             return;
         }
-        std.debug.writeStackTrace(&stack_trace, .{ .writer = writer, .mode = .no_color }) catch |err| {
+        std.debug.writeErrorReturnTrace(&stack_trace, .{ .writer = writer, .mode = .no_color }) catch |err| {
             writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -651,7 +651,7 @@ fn to_result(ret: result) c.thespian_result {
         if (!(cbor.match(msg, .{ "exit", "normal" }) catch false)) {
             if (env.get().is("dump-stack-trace")) {
                 const trace_ = @errorReturnTrace();
-                if (trace_) |t| std.debug.dumpStackTrace(t);
+                if (trace_) |t| std.debug.dumpErrorReturnTrace(t);
             }
         }
         return &error_buffer_tl;
