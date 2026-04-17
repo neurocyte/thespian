@@ -3,14 +3,15 @@ const cbor = @import("cbor");
 const tp = @import("thespian.zig");
 
 pid: ?tp.pid,
-stdin_behavior: Child.StdIo,
+stdin_behavior: StdIo,
 
 const Self = @This();
 pub const max_chunk_size = 4096 - 32;
+pub const StdIo = std.process.SpawnOptions.StdIo;
 
-pub fn init(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: Child.StdIo) !Self {
+pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
     return .{
-        .pid = try Proc.create(a, argv, tag, stdin_behavior),
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior),
         .stdin_behavior = stdin_behavior,
     };
 }
@@ -28,7 +29,7 @@ pub fn write(self: *Self, bytes: []const u8) error{WriteFailed}!usize {
 }
 
 pub fn send(self: *const Self, bytes_: []const u8) tp.result {
-    if (self.stdin_behavior != .Pipe) return tp.exit("cannot send to closed stdin");
+    if (self.stdin_behavior != .pipe) return tp.exit("cannot send to closed stdin");
     const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed, null);
     var bytes = bytes_;
     while (bytes.len > 0)
@@ -45,7 +46,7 @@ pub fn send(self: *const Self, bytes_: []const u8) tp.result {
 
 pub fn close(self: *Self) tp.result {
     defer self.deinit();
-    if (self.stdin_behavior == .Pipe)
+    if (self.stdin_behavior == .pipe)
         if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"stdin_close"});
 }
 
@@ -106,7 +107,7 @@ const Proc = struct {
 
     const Receiver = tp.Receiver(*Proc);
 
-    fn create(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: Child.StdIo) !tp.pid {
+    fn create(_: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !tp.pid {
         const self: *Proc = try a.create(Proc);
 
         var args = std.heap.ArenaAllocator.init(a);
@@ -125,12 +126,12 @@ const Proc = struct {
 
         var child = Child.init(argv_, a);
         child.stdin_behavior = stdin_behavior;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
+        child.stdout_behavior = .pipe;
+        child.stderr_behavior = .pipe;
 
         self.* = .{
             .a = a,
-            .receiver = Receiver.init(receive, self),
+            .receiver = Receiver.init(receive, Proc.deinit, self),
             .args = args,
             .parent = tp.self_pid().clone(),
             .child = child,
@@ -147,6 +148,7 @@ const Proc = struct {
         self.stdin_buffer.deinit(self.a);
         self.parent.deinit();
         self.a.free(self.tag);
+        self.a.destroy(self);
     }
 
     fn start(self: *Proc) tp.result {
@@ -166,7 +168,6 @@ const Proc = struct {
     }
 
     fn receive(self: *Proc, _: tp.pid_ref, m: tp.message) tp.result {
-        errdefer self.deinit();
         var bytes: []const u8 = "";
         var stream_name: []const u8 = "";
         var err: i64 = 0;
@@ -194,11 +195,11 @@ const Proc = struct {
         } else if (try m.match(.{"term"})) {
             const term_ = self.child.kill() catch |e| return self.handle_error(e);
             return self.handle_term(term_);
-        } else if (try m.match(.{ "stream", "stdout", "read_error", 109, tp.extract(&err_msg) })) {
+        } else if (try m.match(.{ "stream", "stdout", "read_error", Child.ERROR_BROKEN_PIPE, tp.extract(&err_msg) })) {
             // stdout closed
             self.child.stdout = null;
             return self.handle_terminate();
-        } else if (try m.match(.{ "stream", "stderr", "read_error", 109, tp.extract(&err_msg) })) {
+        } else if (try m.match(.{ "stream", "stderr", "read_error", Child.ERROR_BROKEN_PIPE, tp.extract(&err_msg) })) {
             // stderr closed
             self.child.stderr = null;
         } else if (try m.match(.{ "stream", tp.extract(&stream_name), "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
@@ -259,9 +260,116 @@ const Child = struct {
     const process = std.process;
     const fs = std.fs;
     const mem = std.mem;
-    const File = std.fs.File;
-    const EnvMap = std.process.EnvMap;
-    const StdIo = std.process.Child.StdIo;
+    const EnvMap = std.process.Environ.Map;
+
+    const ERROR_BROKEN_PIPE = 109;
+
+    // Win32 constants removed from std.os.windows in zig-0.16
+    const INFINITE: windows.DWORD = 0xFFFFFFFF;
+    const HANDLE_FLAG_INHERIT: windows.DWORD = 0x00000001;
+    const PIPE_ACCESS_INBOUND: windows.DWORD = 0x00000001;
+    const FILE_FLAG_OVERLAPPED: windows.DWORD = 0x40000000;
+    const FILE_FLAG_BACKUP_SEMANTICS: windows.DWORD = 0x02000000;
+    const PIPE_TYPE_BYTE: windows.DWORD = 0x00000000;
+    const OPEN_EXISTING: windows.DWORD = 3;
+    const FILE_ATTRIBUTE_NORMAL: windows.DWORD = 0x80;
+    const GENERIC_READ: windows.DWORD = 0x80000000;
+    const GENERIC_WRITE: windows.DWORD = 0x40000000;
+    const SYNCHRONIZE: windows.DWORD = 0x00100000;
+    const FILE_SHARE_READ: windows.DWORD = 0x00000001;
+    const FILE_SHARE_WRITE: windows.DWORD = 0x00000002;
+    const FILE_SHARE_DELETE: windows.DWORD = 0x00000004;
+    const STD_INPUT_HANDLE: windows.DWORD = 0xFFFFFFF6;
+    const STD_OUTPUT_HANDLE: windows.DWORD = 0xFFFFFFF5;
+    const STD_ERROR_HANDLE: windows.DWORD = 0xFFFFFFF4;
+
+    extern "kernel32" fn CreatePipe(
+        hReadPipe: *windows.HANDLE,
+        hWritePipe: *windows.HANDLE,
+        lpPipeAttributes: ?*windows.SECURITY_ATTRIBUTES,
+        nSize: windows.DWORD,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn SetHandleInformation(
+        hObject: windows.HANDLE,
+        dwMask: windows.DWORD,
+        dwFlags: windows.DWORD,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn WriteFile(
+        hFile: windows.HANDLE,
+        lpBuffer: *const anyopaque,
+        nNumberOfBytesToWrite: windows.DWORD,
+        lpNumberOfBytesWritten: ?*windows.DWORD,
+        lpOverlapped: ?*anyopaque,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn GetExitCodeProcess(
+        hProcess: windows.HANDLE,
+        lpExitCode: *windows.DWORD,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn WaitForSingleObjectEx(
+        hHandle: windows.HANDLE,
+        dwMilliseconds: windows.DWORD,
+        bAlertable: windows.BOOL,
+    ) callconv(.winapi) windows.DWORD;
+
+    extern "kernel32" fn TerminateProcess(
+        hProcess: windows.HANDLE,
+        uExitCode: windows.UINT,
+    ) callconv(.winapi) windows.BOOL;
+
+    extern "kernel32" fn CreateNamedPipeW(
+        lpName: [*:0]const u16,
+        dwOpenMode: windows.DWORD,
+        dwPipeMode: windows.DWORD,
+        nMaxInstances: windows.DWORD,
+        nOutBufferSize: windows.DWORD,
+        nInBufferSize: windows.DWORD,
+        nDefaultTimeOut: windows.DWORD,
+        lpSecurityAttributes: ?*windows.SECURITY_ATTRIBUTES,
+    ) callconv(.winapi) windows.HANDLE;
+
+    extern "kernel32" fn CreateFileW(
+        lpFileName: [*:0]const u16,
+        dwDesiredAccess: windows.DWORD,
+        dwShareMode: windows.DWORD,
+        lpSecurityAttributes: ?*windows.SECURITY_ATTRIBUTES,
+        dwCreationDisposition: windows.DWORD,
+        dwFlagsAndAttributes: windows.DWORD,
+        hTemplateFile: ?windows.HANDLE,
+    ) callconv(.winapi) windows.HANDLE;
+
+    extern "kernel32" fn GetSystemDirectoryW(
+        lpBuffer: [*:0]u16,
+        uSize: windows.UINT,
+    ) callconv(.winapi) windows.UINT;
+
+    extern "kernel32" fn GetStdHandle(
+        nStdHandle: windows.DWORD,
+    ) callconv(.winapi) ?windows.HANDLE;
+
+    const WindowsHandle = struct {
+        handle: windows.HANDLE,
+
+        fn writeAll(self: @This(), bytes: []const u8) !void {
+            var remaining = bytes;
+            while (remaining.len > 0) {
+                var written: windows.DWORD = 0;
+                if (WriteFile(self.handle, remaining.ptr, @intCast(remaining.len), &written, null) == .FALSE) {
+                    switch (windows.GetLastError()) {
+                        else => |err| return windows.unexpectedError(err),
+                    }
+                }
+                remaining = remaining[written..];
+            }
+        }
+
+        fn close(self: @This()) void {
+            windows.CloseHandle(self.handle);
+        }
+    };
 
     pub const Term = union(enum) {
         Exited: u8,
@@ -275,20 +383,21 @@ const Child = struct {
         InvalidWtf8,
         CurrentWorkingDirectoryUnlinked,
         InvalidBatchScriptArg,
-    } ||
-        posix.ExecveError ||
-        posix.SetIdError ||
-        posix.ChangeCurDirError ||
-        windows.CreateProcessError ||
-        windows.GetProcessMemoryInfoError ||
-        windows.WaitForSingleObjectError;
+        Unexpected,
+        FileNotFound,
+        InvalidExe,
+        AccessDenied,
+        BadPathName,
+        NameTooLong,
+        AlreadyTerminated,
+    };
 
-    id: std.process.Child.Id,
+    id: windows.HANDLE,
     thread_handle: windows.HANDLE,
     allocator: mem.Allocator,
-    stdin: ?File,
-    stdout: ?File,
-    stderr: ?File,
+    stdin: ?WindowsHandle,
+    stdout: ?WindowsHandle,
+    stderr: ?WindowsHandle,
     term: ?(SpawnError!Term),
     argv: []const []const u8,
     env_map: ?*const EnvMap,
@@ -296,8 +405,7 @@ const Child = struct {
     stdout_behavior: StdIo,
     stderr_behavior: StdIo,
     cwd: ?[]const u8,
-    cwd_dir: ?fs.Dir = null,
-    expand_arg0: std.process.Child.Arg0Expand,
+    cwd_dir: ?std.Io.Dir = null,
 
     pub fn init(argv: []const []const u8, allocator: mem.Allocator) @This() {
         return .{
@@ -311,103 +419,117 @@ const Child = struct {
             .stdin = null,
             .stdout = null,
             .stderr = null,
-            .stdin_behavior = .Inherit,
-            .stdout_behavior = .Inherit,
-            .stderr_behavior = .Inherit,
-            .expand_arg0 = .no_expand,
+            .stdin_behavior = .inherit,
+            .stdout_behavior = .inherit,
+            .stderr_behavior = .inherit,
         };
     }
 
     pub fn spawn(self: *@This()) !void {
         var saAttr = windows.SECURITY_ATTRIBUTES{
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
-            .bInheritHandle = windows.TRUE,
+            .bInheritHandle = .TRUE,
             .lpSecurityDescriptor = null,
         };
 
-        const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
+        const any_ignore = (self.stdin_behavior == .ignore or self.stdout_behavior == .ignore or self.stderr_behavior == .ignore);
 
-        const nul_handle = if (any_ignore)
-            // "\Device\Null" or "\??\NUL"
-            windows.OpenFile(&[_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' }, .{
-                .access_mask = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.SYNCHRONIZE,
-                .share_access = windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE | windows.FILE_SHARE_DELETE,
-                .sa = &saAttr,
-                .creation = windows.OPEN_EXISTING,
-            }) catch |err| switch (err) {
-                error.PathAlreadyExists => return error.Unexpected, // not possible for "NUL"
-                error.PipeBusy => return error.Unexpected, // not possible for "NUL"
-                error.FileNotFound => return error.Unexpected, // not possible for "NUL"
-                error.AccessDenied => return error.Unexpected, // not possible for "NUL"
-                error.NameTooLong => return error.Unexpected, // not possible for "NUL"
-                error.WouldBlock => return error.Unexpected, // not possible for "NUL"
-                error.NetworkNotFound => return error.Unexpected, // not possible for "NUL"
-                error.AntivirusInterference => return error.Unexpected, // not possible for "NUL"
-                else => |e| return e,
-            }
-        else
-            undefined;
+        const nul_handle: windows.HANDLE = if (any_ignore) nul: {
+            const nul_name = [_]u16{ '\\', 'D', 'e', 'v', 'i', 'c', 'e', '\\', 'N', 'u', 'l', 'l' };
+            var nul_unicode = windows.UNICODE_STRING{
+                .Length = @intCast(nul_name.len * 2),
+                .MaximumLength = @intCast(nul_name.len * 2),
+                .Buffer = @constCast(&nul_name),
+            };
+            var nul_attr = windows.OBJECT.ATTRIBUTES{ .ObjectName = &nul_unicode };
+            var io_status: windows.IO_STATUS_BLOCK = undefined;
+            var nul_h: windows.HANDLE = undefined;
+            const rc = windows.ntdll.NtCreateFile(
+                &nul_h,
+                @bitCast(@as(windows.DWORD, GENERIC_READ | GENERIC_WRITE | SYNCHRONIZE)),
+                &nul_attr,
+                &io_status,
+                null,
+                .{},
+                .{ .READ = true, .WRITE = true, .DELETE = true },
+                .OPEN,
+                .{ .IO = .SYNCHRONOUS_NONALERT },
+                null,
+                0,
+            );
+            if (rc != .SUCCESS) return windows.unexpectedStatus(rc);
+            break :nul nul_h;
+        } else undefined;
         defer {
-            if (any_ignore) posix.close(nul_handle);
+            if (any_ignore) windows.CloseHandle(nul_handle);
         }
 
         var g_hChildStd_IN_Rd: ?windows.HANDLE = null;
         var g_hChildStd_IN_Wr: ?windows.HANDLE = null;
         switch (self.stdin_behavior) {
-            StdIo.Pipe => {
+            .pipe => {
                 try makePipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
             },
-            StdIo.Ignore => {
+            .ignore => {
                 g_hChildStd_IN_Rd = nul_handle;
             },
-            StdIo.Inherit => {
-                g_hChildStd_IN_Rd = windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch null;
+            .inherit => {
+                g_hChildStd_IN_Rd = GetStdHandle(STD_INPUT_HANDLE);
             },
-            StdIo.Close => {
+            .file => |f| {
+                g_hChildStd_IN_Rd = f.handle;
+            },
+            .close => {
                 g_hChildStd_IN_Rd = null;
             },
         }
-        errdefer if (self.stdin_behavior == StdIo.Pipe) {
+        errdefer if (self.stdin_behavior == .pipe) {
             destroyPipe(g_hChildStd_IN_Rd, g_hChildStd_IN_Wr);
         };
 
         var g_hChildStd_OUT_Rd: ?windows.HANDLE = null;
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
-            StdIo.Pipe => {
+            .pipe => {
                 try makeAsyncPipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
             },
-            StdIo.Ignore => {
+            .ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
             },
-            StdIo.Inherit => {
-                g_hChildStd_OUT_Wr = windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch null;
+            .inherit => {
+                g_hChildStd_OUT_Wr = GetStdHandle(STD_OUTPUT_HANDLE);
             },
-            StdIo.Close => {
+            .file => |f| {
+                g_hChildStd_OUT_Wr = f.handle;
+            },
+            .close => {
                 g_hChildStd_OUT_Wr = null;
             },
         }
-        errdefer if (self.stdout_behavior == StdIo.Pipe) {
+        errdefer if (self.stdout_behavior == .pipe) {
             destroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr);
         };
 
         var g_hChildStd_ERR_Rd: ?windows.HANDLE = null;
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
-            StdIo.Pipe => {
+            .pipe => {
                 try makeAsyncPipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
             },
-            StdIo.Ignore => {
+            .ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
             },
-            StdIo.Inherit => {
-                g_hChildStd_ERR_Wr = windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch null;
+            .inherit => {
+                g_hChildStd_ERR_Wr = GetStdHandle(STD_ERROR_HANDLE);
             },
-            StdIo.Close => {
+            .file => |f| {
+                g_hChildStd_ERR_Wr = f.handle;
+            },
+            .close => {
                 g_hChildStd_ERR_Wr = null;
             },
         }
-        errdefer if (self.stderr_behavior == StdIo.Pipe) {
+        errdefer if (self.stderr_behavior == .pipe) {
             destroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr);
         };
 
@@ -432,15 +554,15 @@ const Child = struct {
             .cbReserved2 = 0,
             .lpReserved2 = null,
         };
-        var piProcInfo: windows.PROCESS_INFORMATION = undefined;
+        var piProcInfo: windows.PROCESS.INFORMATION = undefined;
 
         const cwd_w = if (self.cwd) |cwd| try unicode.wtf8ToWtf16LeAllocZ(self.allocator, cwd) else null;
         defer if (cwd_w) |cwd| self.allocator.free(cwd);
         const cwd_w_ptr = if (cwd_w) |cwd| cwd.ptr else null;
 
-        const maybe_envp_buf = if (self.env_map) |env_map| try process.createWindowsEnvBlock(self.allocator, env_map) else null;
-        defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
-        const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
+        const maybe_env_block: ?std.process.Environ.WindowsBlock = if (self.env_map) |env_map| try env_map.createWindowsBlock(self.allocator, .{}) else null;
+        defer if (maybe_env_block) |block| block.deinit(self.allocator);
+        const envp_ptr: ?[*:0]const u16 = if (maybe_env_block) |block| block.slice.ptr else null;
 
         const app_name_wtf8 = self.argv[0];
         const app_name_is_absolute = fs.path.isAbsolute(app_name_wtf8);
@@ -474,18 +596,19 @@ const Child = struct {
         defer self.allocator.free(app_name_w);
 
         run: {
-            const PATH: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
-            const PATHEXT: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
+            const global_environ: std.process.Environ = .{ .block = .{ .use_global = true } };
+            const PATH: [:0]const u16 = std.process.Environ.getWindows(global_environ, unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
+            const PATHEXT: [:0]const u16 = std.process.Environ.getWindows(global_environ, unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
 
             var cmd_line_cache = CommandLineCache.init(self.allocator, self.argv);
             defer cmd_line_cache.deinit();
 
-            var app_buf = std.ArrayListUnmanaged(u16){};
+            var app_buf = std.ArrayListUnmanaged(u16).empty;
             defer app_buf.deinit(self.allocator);
 
             try app_buf.appendSlice(self.allocator, app_name_w);
 
-            var dir_buf = std.ArrayListUnmanaged(u16){};
+            var dir_buf = std.ArrayListUnmanaged(u16).empty;
             defer dir_buf.deinit(self.allocator);
 
             if (cwd_path_w.len > 0) {
@@ -534,17 +657,17 @@ const Child = struct {
         }
 
         if (g_hChildStd_IN_Wr) |h| {
-            self.stdin = File{ .handle = h };
+            self.stdin = WindowsHandle{ .handle = h };
         } else {
             self.stdin = null;
         }
         if (g_hChildStd_OUT_Rd) |h| {
-            self.stdout = File{ .handle = h };
+            self.stdout = WindowsHandle{ .handle = h };
         } else {
             self.stdout = null;
         }
         if (g_hChildStd_ERR_Rd) |h| {
-            self.stderr = File{ .handle = h };
+            self.stderr = WindowsHandle{ .handle = h };
         } else {
             self.stderr = null;
         }
@@ -553,35 +676,43 @@ const Child = struct {
         self.thread_handle = piProcInfo.hThread;
         self.term = null;
 
-        if (self.stdin_behavior == StdIo.Pipe) {
-            posix.close(g_hChildStd_IN_Rd.?);
+        if (self.stdin_behavior == .pipe) {
+            windows.CloseHandle(g_hChildStd_IN_Rd.?);
         }
-        if (self.stderr_behavior == StdIo.Pipe) {
-            posix.close(g_hChildStd_ERR_Wr.?);
+        if (self.stderr_behavior == .pipe) {
+            windows.CloseHandle(g_hChildStd_ERR_Wr.?);
         }
-        if (self.stdout_behavior == StdIo.Pipe) {
-            posix.close(g_hChildStd_OUT_Wr.?);
+        if (self.stdout_behavior == .pipe) {
+            windows.CloseHandle(g_hChildStd_OUT_Wr.?);
         }
     }
 
-    fn makePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+    fn makePipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *windows.SECURITY_ATTRIBUTES) !void {
         var rd_h: windows.HANDLE = undefined;
         var wr_h: windows.HANDLE = undefined;
-        try windows.CreatePipe(&rd_h, &wr_h, sattr);
+        if (CreatePipe(&rd_h, &wr_h, sattr, 0) == .FALSE) {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
         errdefer destroyPipe(rd_h, wr_h);
-        try windows.SetHandleInformation(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
+        if (SetHandleInformation(wr_h, HANDLE_FLAG_INHERIT, 0) == .FALSE) {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
         rd.* = rd_h;
         wr.* = wr_h;
     }
 
     fn destroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
-        if (rd) |h| posix.close(h);
-        if (wr) |h| posix.close(h);
+        if (rd) |h| windows.CloseHandle(h);
+        if (wr) |h| windows.CloseHandle(h);
     }
 
     var pipe_name_counter = std.atomic.Value(u32).init(1);
 
-    fn makeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *const windows.SECURITY_ATTRIBUTES) !void {
+    fn makeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *windows.SECURITY_ATTRIBUTES) !void {
         var tmp_bufw: [128]u16 = undefined;
 
         const pipe_path = blk: {
@@ -596,10 +727,10 @@ const Child = struct {
             break :blk tmp_bufw[0..len :0];
         };
 
-        const read_handle = windows.kernel32.CreateNamedPipeW(
+        const read_handle = CreateNamedPipeW(
             pipe_path.ptr,
-            windows.PIPE_ACCESS_INBOUND | windows.FILE_FLAG_OVERLAPPED,
-            windows.PIPE_TYPE_BYTE,
+            PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE,
             1,
             4096,
             4096,
@@ -607,30 +738,34 @@ const Child = struct {
             sattr,
         );
         if (read_handle == windows.INVALID_HANDLE_VALUE) {
-            switch (windows.kernel32.GetLastError()) {
+            switch (windows.GetLastError()) {
                 else => |err| return windows.unexpectedError(err),
             }
         }
-        errdefer posix.close(read_handle);
+        errdefer windows.CloseHandle(read_handle);
 
         var sattr_copy = sattr.*;
-        const write_handle = windows.kernel32.CreateFileW(
+        const write_handle = CreateFileW(
             pipe_path.ptr,
-            windows.GENERIC_WRITE,
+            GENERIC_WRITE,
             0,
             &sattr_copy,
-            windows.OPEN_EXISTING,
-            windows.FILE_ATTRIBUTE_NORMAL,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
             null,
         );
         if (write_handle == windows.INVALID_HANDLE_VALUE) {
-            switch (windows.kernel32.GetLastError()) {
+            switch (windows.GetLastError()) {
                 else => |err| return windows.unexpectedError(err),
             }
         }
-        errdefer posix.close(write_handle);
+        errdefer windows.CloseHandle(write_handle);
 
-        try windows.SetHandleInformation(read_handle, windows.HANDLE_FLAG_INHERIT, 0);
+        if (SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0) == .FALSE) {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
 
         rd.* = read_handle;
         wr.* = write_handle;
@@ -687,10 +822,10 @@ const Child = struct {
         app_buf: *std.ArrayListUnmanaged(u16),
         pathext: [:0]const u16,
         cmd_line_cache: *CommandLineCache,
-        envp_ptr: ?[*]u16,
+        envp_ptr: ?[*:0]const u16,
         cwd_ptr: ?[*:0]u16,
         lpStartupInfo: *windows.STARTUPINFOW,
-        lpProcessInformation: *windows.PROCESS_INFORMATION,
+        lpProcessInformation: *windows.PROCESS.INFORMATION,
     ) !void {
         const app_name_len = app_buf.items.len;
         const dir_path_len = dir_buf.items.len;
@@ -700,15 +835,23 @@ const Child = struct {
         defer app_buf.shrinkRetainingCapacity(app_name_len);
         defer dir_buf.shrinkRetainingCapacity(dir_path_len);
 
-        var dir = dir: {
+        const dir_handle: windows.HANDLE = dir_handle: {
             try dir_buf.append(allocator, 0);
             defer dir_buf.shrinkRetainingCapacity(dir_path_len);
             const dir_path_z = dir_buf.items[0 .. dir_buf.items.len - 1 :0];
-            const prefixed_path = try windows.wToPrefixedFileW(null, dir_path_z);
-            break :dir fs.cwd().openDirW(prefixed_path.span().ptr, .{ .iterate = true }) catch
-                return error.FileNotFound;
+            const h = CreateFileW(
+                dir_path_z.ptr,
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                null,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                null,
+            );
+            if (h == windows.INVALID_HANDLE_VALUE) return error.FileNotFound;
+            break :dir_handle h;
         };
-        defer dir.close();
+        defer windows.CloseHandle(dir_handle);
 
         try app_buf.append(allocator, '*');
         try app_buf.append(allocator, 0);
@@ -734,17 +877,17 @@ const Child = struct {
                 .Buffer = @constCast(app_name_wildcard.ptr),
             };
             const rc = windows.ntdll.NtQueryDirectoryFile(
-                dir.fd,
+                dir_handle,
                 null,
                 null,
                 null,
                 &io_status,
                 &file_information_buf,
                 file_information_buf.len,
-                .FileDirectoryInformation,
-                windows.FALSE, // single result
+                .Directory,
+                .FALSE, // single result
                 &app_name_unicode_string,
-                windows.FALSE, // restart iteration
+                .FALSE, // restart iteration
             );
 
             switch (rc) {
@@ -759,7 +902,7 @@ const Child = struct {
 
             var it = windows.FileInformationIterator(windows.FILE_DIRECTORY_INFORMATION){ .buf = &file_information_buf };
             while (it.next()) |info| {
-                if (info.FileAttributes & windows.FILE_ATTRIBUTE_DIRECTORY != 0) continue;
+                if (info.FileAttributes.DIRECTORY) continue;
                 const filename = @as([*]u16, @ptrCast(&info.FileName))[0 .. info.FileNameLength / 2];
                 if (filename.len == app_name_len) {
                     unappended_exists = true;
@@ -809,7 +952,7 @@ const Child = struct {
                         const app_name = app_buf.items[0..app_name_len];
                         const ext_start = std.mem.lastIndexOfScalar(u16, app_name, '.') orelse break :unappended err;
                         const ext = app_name[ext_start..];
-                        if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                        if (windows.eqlIgnoreCaseWtf16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
                             return error.UnrecoverableInvalidExe;
                         }
                         break :unappended err;
@@ -856,7 +999,7 @@ const Child = struct {
                 error.FileNotFound => continue,
                 error.AccessDenied => continue,
                 error.InvalidExe => {
-                    if (windows.eqlIgnoreCaseWTF16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
+                    if (windows.eqlIgnoreCaseWtf16(ext, unicode.utf8ToUtf16LeStringLiteral(".EXE"))) {
                         return error.UnrecoverableInvalidExe;
                     }
                     continue;
@@ -1010,9 +1153,9 @@ const Child = struct {
         errdefer buf.deinit(allocator);
         while (true) {
             const unused_slice = buf.unusedCapacitySlice();
-            const len = windows.kernel32.GetSystemDirectoryW(@ptrCast(unused_slice), @intCast(unused_slice.len));
+            const len = GetSystemDirectoryW(@ptrCast(unused_slice), @intCast(unused_slice.len));
             if (len == 0) {
-                switch (windows.kernel32.GetLastError()) {
+                switch (windows.GetLastError()) {
                     else => |err| return windows.unexpectedError(err),
                 }
             }
@@ -1101,26 +1244,50 @@ const Child = struct {
     fn createProcess(
         app_name: [*:0]u16,
         cmd_line: [*:0]u16,
-        envp_ptr: ?[*]u16,
+        envp_ptr: ?[*:0]const u16,
         cwd_ptr: ?[*:0]u16,
         lpStartupInfo: *windows.STARTUPINFOW,
-        lpProcessInformation: *windows.PROCESS_INFORMATION,
+        lpProcessInformation: *windows.PROCESS.INFORMATION,
     ) !void {
-        return windows.CreateProcessW(
+        if (windows.kernel32.CreateProcessW(
             app_name,
             cmd_line,
             null,
             null,
-            windows.TRUE,
+            .TRUE,
             .{
                 .create_unicode_environment = true,
                 .create_no_window = true,
             },
-            @as(?*anyopaque, @ptrCast(envp_ptr)),
+            envp_ptr,
             cwd_ptr,
             lpStartupInfo,
             lpProcessInformation,
-        );
+        ) == .FALSE) {
+            switch (windows.GetLastError()) {
+                .FILE_NOT_FOUND, .PATH_NOT_FOUND, .DIRECTORY => return error.FileNotFound,
+                .ACCESS_DENIED => return error.AccessDenied,
+                .BAD_FORMAT,
+                .INVALID_STARTING_CODESEG,
+                .INVALID_STACKSEG,
+                .INVALID_MODULETYPE,
+                .INVALID_EXE_SIGNATURE,
+                .EXE_MARKED_INVALID,
+                .BAD_EXE_FORMAT,
+                .ITERATED_DATA_EXCEEDS_64k,
+                .INVALID_MINALLOCSIZE,
+                .DYNLINK_FROM_INVALID_RING,
+                .IOPL_NOT_ENABLED,
+                .INVALID_SEGDPL,
+                .AUTODATASEG_EXCEEDS_64k,
+                .RING2SEG_MUST_BE_MOVABLE,
+                .RELOC_CHAIN_XEEDS_SEGLIM,
+                .INFLOOP_IN_RELOC_CHAIN,
+                .EXE_MACHINE_TYPE_MISMATCH,
+                => return error.InvalidExe,
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
     }
 
     pub fn wait(self: *@This()) !Term {
@@ -1135,21 +1302,25 @@ const Child = struct {
     }
 
     fn waitUnwrapped(self: *@This()) !void {
-        const result = windows.WaitForSingleObjectEx(self.id, windows.INFINITE, false);
+        const wait_result = WaitForSingleObjectEx(self.id, INFINITE, .FALSE);
+        if (wait_result == 0xFFFFFFFF) { // WAIT_FAILED
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
 
         self.term = @as(SpawnError!Term, x: {
             var exit_code: windows.DWORD = undefined;
-            if (windows.kernel32.GetExitCodeProcess(self.id, &exit_code) == 0) {
+            if (GetExitCodeProcess(self.id, &exit_code) == .FALSE) {
                 break :x Term{ .Unknown = 0 };
             } else {
                 break :x Term{ .Exited = @as(u8, @truncate(exit_code)) };
             }
         });
 
-        posix.close(self.id);
-        posix.close(self.thread_handle);
+        windows.CloseHandle(self.id);
+        windows.CloseHandle(self.thread_handle);
         self.cleanupStreams();
-        return result;
     }
 
     fn cleanupStreams(self: *@This()) void {
@@ -1173,13 +1344,16 @@ const Child = struct {
             return term_;
         }
 
-        windows.TerminateProcess(self.id, 1) catch |err| switch (err) {
-            error.AccessDenied => {
-                windows.WaitForSingleObjectEx(self.id, 0, false) catch return err;
-                return error.AlreadyTerminated;
-            },
-            else => return err,
-        };
+        if (TerminateProcess(self.id, 1) == .FALSE) {
+            switch (windows.GetLastError()) {
+                .ACCESS_DENIED => {
+                    const r = WaitForSingleObjectEx(self.id, 0, .FALSE);
+                    if (r == 0) return error.AlreadyTerminated; // WAIT_OBJECT_0
+                    return error.Unexpected;
+                },
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
         try self.waitUnwrapped();
         return self.term.?;
     }

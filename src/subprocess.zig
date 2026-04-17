@@ -2,16 +2,19 @@ const std = @import("std");
 const cbor = @import("cbor");
 const tp = @import("thespian.zig");
 
+io: std.Io,
 pid: ?tp.pid,
-stdin_behavior: std.process.Child.StdIo,
+stdin_behavior: StdIo,
 write_buf: [max_chunk_size]u8 = undefined,
 
 const Self = @This();
 pub const max_chunk_size = 4096 - 32;
+pub const StdIo = std.process.SpawnOptions.StdIo;
 
-pub fn init(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !Self {
+pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
     return .{
-        .pid = try Proc.create(a, argv, tag, stdin_behavior),
+        .io = io,
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior),
         .stdin_behavior = stdin_behavior,
     };
 }
@@ -68,7 +71,7 @@ fn drain(w: *std.Io.Writer, data_: []const []const u8, splat: usize) std.Io.Writ
 }
 
 pub fn send(self: *const Self, bytes_: []const u8) tp.result {
-    if (self.stdin_behavior != .Pipe) return tp.exit("cannot send to closed stdin");
+    if (self.stdin_behavior != .pipe) return tp.exit("cannot send to closed stdin");
     const pid = if (self.pid) |pid| pid else return tp.exit_error(error.Closed, null);
     var bytes = bytes_;
     while (bytes.len > 0)
@@ -85,7 +88,7 @@ pub fn send(self: *const Self, bytes_: []const u8) tp.result {
 
 pub fn close(self: *Self) tp.result {
     defer self.deinit();
-    if (self.stdin_behavior == .Pipe)
+    if (self.stdin_behavior == .pipe)
         if (self.pid) |pid| if (!pid.expired()) try pid.send(.{"stdin_close"});
 }
 
@@ -96,8 +99,11 @@ pub fn term(self: *Self) tp.result {
 
 const Proc = struct {
     a: std.mem.Allocator,
+    io: std.Io,
     receiver: Receiver,
     args: std.heap.ArenaAllocator,
+    argv: []const []const u8,
+    stdin_behavior: StdIo,
     parent: tp.pid,
     child: std.process.Child,
     tag: [:0]const u8,
@@ -110,7 +116,7 @@ const Proc = struct {
 
     const Receiver = tp.Receiver(*Proc);
 
-    fn create(a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: std.process.Child.StdIo) !tp.pid {
+    fn create(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !tp.pid {
         var args = std.heap.ArenaAllocator.init(a);
         const args_a = args.allocator();
         errdefer args.deinit();
@@ -127,19 +133,17 @@ const Proc = struct {
             i += 1;
         }
 
-        var child = std.process.Child.init(argv_, a);
-        child.stdin_behavior = stdin_behavior;
-        child.stdout_behavior = .Pipe;
-        child.stderr_behavior = .Pipe;
-
         const self: *Proc = try a.create(Proc);
         errdefer a.destroy(self);
         self.* = .{
             .a = a,
-            .receiver = Receiver.init(receive, self),
+            .io = io,
+            .receiver = Receiver.init(receive, Proc.deinit, self),
             .args = args,
+            .argv = argv_,
+            .stdin_behavior = stdin_behavior,
             .parent = tp.self_pid().clone(),
-            .child = child,
+            .child = undefined,
             .tag = try a.dupeZ(u8, tag),
             .stdin_buffer = .empty,
         };
@@ -160,10 +164,15 @@ const Proc = struct {
     fn start(self: *Proc) tp.result {
         errdefer self.deinit();
 
-        self.child.spawn() catch |e| return self.handle_error(e);
+        self.child = std.process.spawn(self.io, .{
+            .argv = self.argv,
+            .stdin = self.stdin_behavior,
+            .stdout = .pipe,
+            .stderr = .pipe,
+        }) catch |e| return self.handle_error(e);
         _ = self.args.reset(.free_all);
 
-        if (self.child.stdin_behavior == .Pipe)
+        if (self.stdin_behavior == .pipe)
             self.fd_stdin = tp.file_descriptor.init("stdin", self.child.stdin.?.handle) catch |e| return self.handle_error(e);
         self.fd_stdout = tp.file_descriptor.init("stdout", self.child.stdout.?.handle) catch |e| return self.handle_error(e);
         self.fd_stderr = tp.file_descriptor.init("stderr", self.child.stderr.?.handle) catch |e| return self.handle_error(e);
@@ -174,7 +183,6 @@ const Proc = struct {
     }
 
     fn receive(self: *Proc, _: tp.pid_ref, m: tp.message) tp.result {
-        errdefer self.deinit();
         var bytes: []const u8 = "";
         var err: i64 = 0;
         var err_msg: []const u8 = "";
@@ -187,7 +195,7 @@ const Proc = struct {
         } else if (try m.match(.{ "fd", "stdin", "write_ready" })) {
             if (self.stdin_buffer.items.len > 0) {
                 if (self.child.stdin) |stdin| {
-                    const written = stdin.write(self.stdin_buffer.items) catch |e| switch (e) {
+                    const written = stdin.writeStreaming(self.io, "", &.{self.stdin_buffer.items}, 1) catch |e| switch (e) {
                         error.WouldBlock => {
                             if (self.fd_stdin) |fd_stdin| {
                                 fd_stdin.wait_write() catch |e_| return self.handle_error(e_);
@@ -227,18 +235,18 @@ const Proc = struct {
                 self.stdin_close();
             }
         } else if (try m.match(.{"stdout_close"})) {
-            if (self.child.stdout) |*fd| {
-                fd.close();
+            if (self.child.stdout) |stdout| {
+                stdout.close(self.io);
                 self.child.stdout = null;
             }
         } else if (try m.match(.{"stderr_close"})) {
-            if (self.child.stderr) |*fd| {
-                fd.close();
+            if (self.child.stderr) |stderr| {
+                stderr.close(self.io);
                 self.child.stderr = null;
             }
         } else if (try m.match(.{"term"})) {
-            const term_ = self.child.kill() catch |e| return self.handle_error(e);
-            return self.handle_term(term_);
+            self.child.kill(self.io);
+            return self.handle_terminate();
         } else if (try m.match(.{ "fd", tp.any, "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
             try self.parent.send(.{ self.tag, "term", err_msg, 1 });
             return tp.exit_normal();
@@ -246,8 +254,8 @@ const Proc = struct {
     }
 
     fn stdin_close(self: *Proc) void {
-        if (self.child.stdin) |*fd| {
-            fd.close();
+        if (self.child.stdin) |stdin| {
+            stdin.close(self.io);
             self.child.stdin = null;
             tp.env.get().trace(tp.message.fmt(.{ self.tag, "stdin", "closed" }).to(tp.message.c_buffer_type));
         }
@@ -256,7 +264,7 @@ const Proc = struct {
     fn dispatch_stdout(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
         const stdout = self.child.stdout orelse return self.handle_error(error.ReadNoStdout);
-        const bytes = stdout.read(&buffer) catch |e| switch (e) {
+        const bytes = std.posix.read(stdout.handle, &buffer) catch |e| switch (e) {
             error.WouldBlock => return,
             else => return self.handle_error(e),
         };
@@ -268,7 +276,7 @@ const Proc = struct {
     fn dispatch_stderr(self: *Proc) tp.result {
         var buffer: [max_chunk_size]u8 = undefined;
         const stderr = self.child.stderr orelse return self.handle_error(error.ReadNoStderr);
-        const bytes = stderr.read(&buffer) catch |e| switch (e) {
+        const bytes = std.posix.read(stderr.handle, &buffer) catch |e| switch (e) {
             error.WouldBlock => return,
             else => return self.handle_error(e),
         };
@@ -278,15 +286,15 @@ const Proc = struct {
     }
 
     fn handle_terminate(self: *Proc) error{Exit} {
-        return self.handle_term(self.child.wait() catch |e| return self.handle_error(e));
+        return self.handle_term(self.child.wait(self.io) catch |e| return self.handle_error(e));
     }
 
     fn handle_term(self: *Proc, term_: std.process.Child.Term) error{Exit} {
         (switch (term_) {
-            .Exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
-            .Signal => |val| self.parent.send(.{ self.tag, "term", "signal", val }),
-            .Stopped => |val| self.parent.send(.{ self.tag, "term", "stop", val }),
-            .Unknown => |val| self.parent.send(.{ self.tag, "term", "unknown", val }),
+            .exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
+            .signal => |val| self.parent.send(.{ self.tag, "term", "signal", @intFromEnum(val) }),
+            .stopped => |val| self.parent.send(.{ self.tag, "term", "stop", @intFromEnum(val) }),
+            .unknown => |val| self.parent.send(.{ self.tag, "term", "unknown", val }),
         }) catch {};
         return tp.exit_normal();
     }
