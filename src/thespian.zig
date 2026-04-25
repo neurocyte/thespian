@@ -63,7 +63,7 @@ pub const Ownership = enum {
     Owned,
 };
 
-pub const CallError = error{ OutOfMemory, ThespianSpawnFailed, Timeout };
+pub const CallError = error{ OutOfMemory, ThespianSpawnFailed, Timeout, Canceled };
 
 fn Pid(comptime own: Ownership) type {
     return struct {
@@ -96,8 +96,8 @@ fn Pid(comptime own: Ownership) type {
             return self.send_raw(message.fmt(m));
         }
 
-        pub fn call(self: Self, a: std.mem.Allocator, timeout_ns: u64, request: anytype) CallError!message {
-            return CallContext.call(a, self.ref(), timeout_ns, message.fmt(request));
+        pub fn call(self: Self, io: std.Io, a: std.mem.Allocator, timeout_: std.Io.Timeout, request: anytype) CallError!message {
+            return CallContext.call(io, a, self.ref(), timeout_, message.fmt(request));
         }
 
         pub fn delay_send(self: Self, a: std.mem.Allocator, delay_us: u64, m: anytype) result {
@@ -961,20 +961,22 @@ pub const file_stream = struct {
 };
 
 const CallContext = struct {
+    io: std.Io,
     receiver: ReceiverT,
     from: pid,
     to: pid_ref,
     request: message,
     response: ?message,
     a: std.mem.Allocator,
-    done: std.Thread.ResetEvent = .{},
+    done: std.Io.Event = .unset,
 
     const Self = @This();
     const ReceiverT = Receiver(*Self);
 
-    pub fn call(a: std.mem.Allocator, to: pid_ref, timeout_ns: u64, request: message) CallError!message {
+    pub fn call(io: std.Io, a: std.mem.Allocator, to: pid_ref, timeout_: std.Io.Timeout, request: message) CallError!message {
         const self = try a.create(Self);
         self.* = .{
+            .io = io,
             .receiver = undefined,
             .from = self_pid().clone(),
             .to = to,
@@ -985,7 +987,7 @@ const CallContext = struct {
         self.receiver = ReceiverT.init(receive_, deinit_from_dtor, self);
         const proc = try spawn_link(a, self, start, @typeName(Self));
         defer proc.deinit();
-        try self.done.timedWait(timeout_ns);
+        try self.done.waitTimeout(io, timeout_);
         return self.response orelse .{};
     }
 
@@ -1001,7 +1003,7 @@ const CallContext = struct {
     }
 
     fn start(self: *Self) result {
-        errdefer self.done.set();
+        errdefer self.done.set(self.io);
         try self.to.link();
         try self.to.send_raw(self.request);
         receive(&self.receiver);
@@ -1009,7 +1011,7 @@ const CallContext = struct {
 
     fn receive_(self: *Self, _: pid_ref, m: message) result {
         self.response = m.clone(self.a) catch |e| return exit_error(e, @errorReturnTrace());
-        self.done.set();
+        self.done.set(self.io);
         return exit_normal();
     }
 };
