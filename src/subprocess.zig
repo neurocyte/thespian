@@ -245,7 +245,7 @@ const Proc = struct {
                 self.child.stderr = null;
             }
         } else if (try m.match(.{"term"})) {
-            self.child.kill(self.io);
+            self.child_sig_term() catch |e| std.debug.panic("child_sig_term: {t}", .{e});
             return self.handle_terminate();
         } else if (try m.match(.{ "fd", tp.any, "read_error", tp.extract(&err), tp.extract(&err_msg) })) {
             try self.parent.send(.{ self.tag, "term", err_msg, 1 });
@@ -286,7 +286,7 @@ const Proc = struct {
     }
 
     fn handle_terminate(self: *Proc) error{Exit} {
-        return self.handle_term(self.child.wait(self.io) catch |e| return self.handle_error(e));
+        return self.handle_term(self.child_wait() catch |e| return self.handle_error(e));
     }
 
     fn handle_term(self: *Proc, term_: std.process.Child.Term) error{Exit} {
@@ -302,5 +302,43 @@ const Proc = struct {
     fn handle_error(self: *Proc, e: anyerror) error{Exit} {
         try self.parent.send(.{ self.tag, "term", e, 1 });
         return tp.exit_normal();
+    }
+
+    fn child_sig_term(self: *Proc) !void {
+        const pid = self.child.id.?;
+        while (true) switch (std.c.errno(std.c.kill(pid, .TERM))) {
+            .SUCCESS => return,
+            .INTR => {},
+            .PERM => return error.PermissionDenied,
+            else => |e| std.debug.panic("child_sig_term: ERROR: {t}", .{e}),
+        };
+    }
+
+    fn child_wait(self: *Proc) error{ WaitChild, Unexpected }!std.process.Child.Term {
+        defer self.child_wait_cleanup();
+        const pid = self.child.id.?;
+        var status: c_int = undefined;
+        while (true) switch (std.c.errno(std.c.wait4(pid, &status, 0, null))) {
+            .SUCCESS => return std.Io.Threaded.statusToTerm(@bitCast(status)),
+            .INTR => {},
+            .CHILD => return error.WaitChild,
+            else => return error.Unexpected,
+        };
+    }
+
+    fn child_wait_cleanup(self: *Proc) void {
+        if (self.child.stdin) |stdout| {
+            stdout.close(self.io);
+            self.child.stdout = null;
+        }
+        if (self.child.stdout) |stdout| {
+            stdout.close(self.io);
+            self.child.stdout = null;
+        }
+        if (self.child.stderr) |stdout| {
+            stdout.close(self.io);
+            self.child.stdout = null;
+        }
+        self.child.id = null;
     }
 };
