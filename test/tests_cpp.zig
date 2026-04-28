@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const c = @cImport({
-    @cInclude("tests.h");
-});
+const c = @import("c");
 
 fn testcase(name: [*c]const u8) !void {
     const result = c.runtestcase(name);

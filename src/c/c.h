@@ -1,0 +1,9 @@
+#include <thespian/c/file_descriptor.h>
+#include <thespian/c/file_stream.h>
+#include <thespian/c/instance.h>
+#include <thespian/c/metronome.h>
+#include <thespian/c/signal.h>
+#include <thespian/c/socket.h>
+#include <thespian/c/tcp.h>
+#include <thespian/c/timeout.h>
+#include <thespian/c/unx.h>

@@ -87,20 +87,49 @@ pub fn build(b: *std.Build) void {
     });
     const cbor_mod = cbor_dep.module("cbor");
 
+    const c_step = b.addTranslateC(.{
+        .root_source_file = b.path("src/c/c.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    c_step.addIncludePath(b.path("src"));
+    c_step.addIncludePath(b.path("include"));
+
     const thespian_mod = b.addModule("thespian", .{
         .root_source_file = b.path("src/thespian.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "c", .module = c_step.createModule() },
         },
     });
     thespian_mod.addIncludePath(b.path("include"));
     thespian_mod.linkLibrary(lib);
+
+    if (lib.rootModuleTarget().os.tag != .windows) {
+        const backtrace_step = b.addTranslateC(.{
+            .root_source_file = b.path("include/thespian/backtrace.h"),
+            .target = target,
+            .optimize = optimize,
+        });
+        backtrace_step.addIncludePath(b.path("src"));
+        backtrace_step.addIncludePath(b.path("include"));
+        thespian_mod.addImport("backtrace", backtrace_step.createModule());
+    }
+
+    const test_c_step = b.addTranslateC(.{
+        .root_source_file = b.path("test/tests.h"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("test/tests.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "c", .module = test_c_step.createModule() },
+            },
         }),
     });
 

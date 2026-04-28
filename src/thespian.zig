@@ -1,18 +1,5 @@
 const std = @import("std");
-const c = @cImport({
-    @cInclude("thespian/c/file_descriptor.h");
-    @cInclude("thespian/c/file_stream.h");
-    @cInclude("thespian/c/instance.h");
-    @cInclude("thespian/c/metronome.h");
-    @cInclude("thespian/c/timeout.h");
-    @cInclude("thespian/c/signal.h");
-    @cInclude("thespian/c/unx.h");
-    @cInclude("thespian/c/tcp.h");
-    @cInclude("thespian/c/socket.h");
-});
-const c_posix = if (builtin.os.tag != .windows) @cImport({
-    @cInclude("thespian/backtrace.h");
-}) else {};
+const c = @import("c");
 const cbor = @import("cbor");
 const builtin = @import("builtin");
 
@@ -30,9 +17,9 @@ pub const install_remote_debugger = c.install_remote_debugger;
 pub const install_backtrace = c.install_backtrace;
 pub const install_jitdebugger = c.install_jitdebugger;
 
-pub const sighdl_debugger = if (builtin.os.tag != .windows) c_posix.sighdl_debugger else {};
-pub const sighdl_remote_debugger = if (builtin.os.tag != .windows) c_posix.sighdl_remote_debugger else {};
-pub const sighdl_backtrace = if (builtin.os.tag != .windows) c_posix.sighdl_backtrace else {};
+pub const sighdl_debugger = if (builtin.os.tag != .windows) @import("backtrace").sighdl_debugger else {};
+pub const sighdl_remote_debugger = if (builtin.os.tag != .windows) @import("backtrace").sighdl_remote_debugger else {};
+pub const sighdl_backtrace = if (builtin.os.tag != .windows) @import("backtrace").sighdl_backtrace else {};
 
 pub const max_message_size = 8 * 4096;
 const message_buf_allocator = std.heap.c_allocator;
