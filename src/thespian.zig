@@ -595,6 +595,79 @@ pub fn spawn_link_env(
     return wrap_pid(handle_);
 }
 
+/// Spawn an actor on a dedicated thread with a private thespian context
+pub fn spawn_pinned(
+    a: std.mem.Allocator,
+    data: anytype,
+    f: Behaviour(@TypeOf(data)).FunT,
+    name: [:0]const u8,
+    env_: ?*const env,
+) !pid {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const Data = @TypeOf(data);
+    const State = struct {
+        a: std.mem.Allocator,
+        ready: std.Io.Event = .unset,
+        start_error: ?anyerror = null,
+        pid_for_caller: ?pid = null,
+        data: Data,
+        f: Behaviour(Data).FunT,
+        name: [:0]const u8,
+        env_: ?*const env,
+
+        fn threadMain(self: *@This()) void {
+            const io_ = std.Io.Threaded.global_single_threaded.io();
+            var ctx = context.init(self.a, .{ .thread_count = 1 }) catch |e| {
+                self.start_error = e;
+                self.ready.set(io_);
+                return;
+            };
+            defer ctx.deinit();
+
+            const p = ctx.spawn_link(self.data, self.f, self.name, null, self.env_) catch |e| {
+                self.start_error = e;
+                self.ready.set(io_);
+                return;
+            };
+            defer p.deinit();
+
+            self.pid_for_caller = p.clone();
+            self.ready.set(io_);
+
+            ctx.run();
+
+            // Caller has detached; we own `self` now and clean it up.
+            self.a.destroy(self);
+        }
+    };
+
+    const state = try a.create(State);
+    state.* = .{
+        .a = a,
+        .data = data,
+        .f = f,
+        .name = name,
+        .env_ = env_,
+    };
+
+    const thread = std.Thread.spawn(.{}, State.threadMain, .{state}) catch |e| {
+        a.destroy(state);
+        return e;
+    };
+    state.ready.waitUncancelable(io);
+
+    if (state.start_error) |e| {
+        thread.join();
+        a.destroy(state);
+        return e;
+    }
+
+    const ret = state.pid_for_caller.?;
+    state.pid_for_caller = null;
+    thread.detach();
+    return ret;
+}
+
 pub fn neg_to_error(errcode: c_int, errortype: anytype) @TypeOf(errortype)!void {
     if (errcode < 0) return log_last_error(errortype);
 }
