@@ -21,6 +21,9 @@ struct thespian_context_t;
 typedef struct thespian_context_t *thespian_context;
 
 thespian_context thespian_context_create(thespian_context_destroy *);
+thespian_context
+thespian_context_create_with_threads(thespian_context_destroy *,
+                                     long thread_count);
 void thespian_context_run(thespian_context);
 void thespian_context_on_last_exit(thespian_context,
                                    thespian_last_exit_handler);

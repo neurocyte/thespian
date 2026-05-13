@@ -252,7 +252,7 @@ const Server = struct {
 
 test "ip_tcp_client_server test" {
     const allocator = std.testing.allocator;
-    var ctx = try thespian.context.init(allocator);
+    var ctx = try thespian.context.init(allocator, .{});
     defer ctx.deinit();
 
     var success = false;

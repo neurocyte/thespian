@@ -67,7 +67,8 @@ const auto MAX_THREAD =
     static_cast<long>(atoi(MAX_THREAD_STR ? MAX_THREAD_STR : "64")); // NOLINT
 
 #if !defined(_WIN32)
-const auto threads = max(min(sysconf(_SC_NPROCESSORS_ONLN), MAX_THREAD), MIN_THREAD);
+const auto threads =
+    max(min(sysconf(_SC_NPROCESSORS_ONLN), MAX_THREAD), MIN_THREAD);
 #else
 namespace {
 static auto get_num_processors() -> long {
@@ -80,8 +81,12 @@ const auto threads = max(min(get_num_processors(), MAX_THREAD), MIN_THREAD);
 #endif
 
 struct context_impl {
-  context_impl() : asio{make_unique<io_context>(threads)} {}
+  context_impl() : context_impl(threads) {}
+  explicit context_impl(long thread_count)
+      : asio{make_unique<io_context>(static_cast<int>(thread_count))},
+        thread_count{thread_count} {}
   unique_ptr<io_context> asio;
+  long thread_count;
   atomic<size_t> pending;
   atomic<size_t> posts;
 };
@@ -92,6 +97,15 @@ auto context::create() -> context {
     abort();
 #endif
   return {context_ref(new context_impl(), [](context_impl *p) { delete p; })};
+}
+
+auto context::create(long thread_count) -> context {
+#if !defined(_WIN32)
+  if (::signal(SIGPIPE, SIG_IGN) == SIG_ERR) // NOLINT
+    abort();
+#endif
+  return {context_ref(new context_impl(thread_count),
+                      [](context_impl *p) { delete p; })};
 }
 
 struct strand_impl {
@@ -115,7 +129,7 @@ auto context::create_strand() -> strand {
 void strand::post(function<void()> f) { ref->post(move(f)); }
 
 auto context::run() -> void {
-  const auto spawn_threads = max(threads - 1, 0L);
+  const auto spawn_threads = max(ref->thread_count - 1, 0L);
   vector<thread *> running;
   for (auto i = 0; i < spawn_threads; ++i) {
     auto *t = new thread([ctx = ref]() { ctx->asio->run(); });

@@ -445,12 +445,21 @@ pub const context = struct {
 
     const Self = @This();
 
-    pub fn init(a: std.mem.Allocator) !Self {
+    pub const InitOptions = struct {
+        /// Number of worker threads to drive this context
+        ///   null -> CPU count clamped by MIN_THREAD / MAX_THREAD env vars
+        thread_count: ?c_long = null,
+    };
+
+    pub fn init(a: std.mem.Allocator, options: InitOptions) !Self {
         var ctx_destroy: c.thespian_context_destroy = null;
-        const ctx = c.thespian_context_create(&ctx_destroy) orelse return error.ThespianContextCreateFailed;
+        const ctx = if (options.thread_count) |n|
+            c.thespian_context_create_with_threads(&ctx_destroy, n)
+        else
+            c.thespian_context_create(&ctx_destroy);
         return .{
             .a = a,
-            .context = ctx,
+            .context = ctx orelse return error.ThespianContextCreateFailed,
             .context_destroy = ctx_destroy orelse return error.ThespianContextCreateFailed,
         };
     }

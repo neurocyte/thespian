@@ -21,6 +21,14 @@ thespian_context_create(thespian_context_destroy *d) {        // NOLINT
       context::create(reinterpret_cast<context::dtor *>(d))); // NOLINT
 }
 
+thespian_context
+thespian_context_create_with_threads(thespian_context_destroy *d, // NOLINT
+                                     long thread_count) {
+  return reinterpret_cast<thespian_context>(                // NOLINT
+      context::create(reinterpret_cast<context::dtor *>(d), // NOLINT
+                      thread_count));
+}
+
 void thespian_context_run(thespian_context ctx) {
   reinterpret_cast<context *>(ctx)->run(); // NOLINT
 }

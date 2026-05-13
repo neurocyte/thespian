@@ -150,7 +150,7 @@ test "subprocess writer" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    var ctx = try thespian.context.init(allocator);
+    var ctx = try thespian.context.init(allocator, .{});
     defer ctx.deinit();
 
     var success = false;
@@ -178,7 +178,7 @@ test "subprocess echo" {
     const allocator = std.testing.allocator;
     const io = std.testing.io;
 
-    var ctx = try thespian.context.init(allocator);
+    var ctx = try thespian.context.init(allocator, .{});
     defer ctx.deinit();
 
     var success = false;

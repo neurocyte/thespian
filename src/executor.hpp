@@ -25,6 +25,7 @@ using context_ref = std::shared_ptr<context_impl>;
 
 struct context {
   static auto create() -> context;
+  static auto create(long thread_count) -> context;
   auto create_strand() -> strand;
   void run();
   auto pending_tasks() -> size_t;

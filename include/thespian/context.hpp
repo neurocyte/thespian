@@ -18,6 +18,8 @@ struct context {
 
   [[nodiscard]] static auto create() -> ref;
   [[nodiscard]] static auto create(dtor *) -> context *;
+  [[nodiscard]] static auto create(long thread_count) -> ref;
+  [[nodiscard]] static auto create(dtor *, long thread_count) -> context *;
   void run();
   void on_last_exit(last_exit_handler);
 

@@ -123,6 +123,16 @@ auto context::create(dtor *d) -> context * {
   return new context_impl{executor::context::create()};
 }
 
+auto context::create(long thread_count) -> ref {
+  return {new context_impl{executor::context::create(thread_count)},
+          context_impl::destroy};
+}
+
+auto context::create(dtor *d, long thread_count) -> context * {
+  *d = context_impl::destroy;
+  return new context_impl{executor::context::create(thread_count)};
+}
+
 void context::run() { impl(*this).executor.run(); }
 
 void context::on_last_exit(last_exit_handler h) {
