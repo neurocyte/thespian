@@ -474,7 +474,7 @@ pub const context = struct {
         f: Behaviour(@TypeOf(data)).FunT,
         name: [:0]const u8,
         eh: anytype,
-        env_: ?*const env,
+        env_: ?env,
     ) !pid {
         const Tclosure = Behaviour(@TypeOf(data));
         var handle_: c.thespian_handle = null;
@@ -597,75 +597,71 @@ pub fn spawn_link_env(
 
 /// Spawn an actor on a dedicated thread with a private thespian context
 pub fn spawn_pinned(
+    io: std.Io,
     a: std.mem.Allocator,
     data: anytype,
     f: Behaviour(@TypeOf(data)).FunT,
     name: [:0]const u8,
-    env_: ?*const env,
+    env__: ?env,
 ) !pid {
-    const io = std.Io.Threaded.global_single_threaded.io();
+    const env_ = env__ orelse env.get();
     const Data = @TypeOf(data);
-    const State = struct {
+    var state: struct {
+        io: std.Io,
         a: std.mem.Allocator,
-        ready: std.Io.Event = .unset,
-        start_error: ?anyerror = null,
-        pid_for_caller: ?pid = null,
+        start_done: std.Io.Event = .unset,
+        err: ?anyerror = null,
+        pid: ?pid = null,
         data: Data,
         f: Behaviour(Data).FunT,
         name: [:0]const u8,
-        env_: ?*const env,
+        env_: env,
 
-        fn threadMain(self: *@This()) void {
-            const io_ = std.Io.Threaded.global_single_threaded.io();
+        fn run(self: *@This()) void {
+            const thread_env = self.env_.clone();
+            defer thread_env.deinit();
+            const name_ = self.name;
+            @This().trace(thread_env, .{ "PIN", name_, "run" });
             var ctx = context.init(self.a, .{ .thread_count = 1 }) catch |e| {
-                self.start_error = e;
-                self.ready.set(io_);
+                self.err = e;
+                self.start_done.set(self.io);
                 return;
             };
             defer ctx.deinit();
 
-            const p = ctx.spawn_link(self.data, self.f, self.name, null, self.env_) catch |e| {
-                self.start_error = e;
-                self.ready.set(io_);
+            const p = ctx.spawn_link(self.data, self.f, self.name, null, thread_env) catch |e| {
+                self.err = e;
+                self.start_done.set(self.io);
                 return;
             };
             defer p.deinit();
 
-            self.pid_for_caller = p.clone();
-            self.ready.set(io_);
+            self.pid = p.clone();
+            self.start_done.set(self.io);
+            // Caller destroys self after ready.set
 
-            ctx.run();
-
-            // Caller has detached; we own `self` now and clean it up.
-            self.a.destroy(self);
+            ctx.run(); // blocks thread until actor exits
+            @This().trace(thread_env, .{ "PIN", name_, "exited" });
         }
-    };
 
-    const state = try a.create(State);
-    state.* = .{
-        .a = a,
-        .data = data,
-        .f = f,
-        .name = name,
-        .env_ = env_,
-    };
+        fn trace(tenv: env, value: anytype) void {
+            if (!tenv.enabled(channel.lifetime)) return;
+            var trace_buffer: [512]u8 = undefined;
+            const m = message.fmtbuf(&trace_buffer, value) catch |e|
+                std.debug.panic("TRACE ERROR: {}", .{e});
+            tenv.trace(m.to(message.c_buffer_type));
+        }
+    } = .{ .io = io, .a = a, .data = data, .f = f, .name = name, .env_ = env_ };
 
-    const thread = std.Thread.spawn(.{}, State.threadMain, .{state}) catch |e| {
-        a.destroy(state);
-        return e;
-    };
-    state.ready.waitUncancelable(io);
-
-    if (state.start_error) |e| {
+    @TypeOf(state).trace(env_, .{ "PIN", name, "spawn" });
+    const thread = std.Thread.spawn(.{}, @TypeOf(state).run, .{&state}) catch |e| return e;
+    state.start_done.waitUncancelable(state.io);
+    if (state.err) |e| {
         thread.join();
-        a.destroy(state);
         return e;
     }
-
-    const ret = state.pid_for_caller.?;
-    state.pid_for_caller = null;
     thread.detach();
-    return ret;
+    return state.pid orelse @panic("spawn_pinned no pid");
 }
 
 pub fn neg_to_error(errcode: c_int, errortype: anytype) @TypeOf(errortype)!void {
