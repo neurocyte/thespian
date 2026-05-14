@@ -603,14 +603,25 @@ pub fn spawn_pinned(
     f: Behaviour(@TypeOf(data)).FunT,
     name: [:0]const u8,
     env__: ?env,
-) !pid {
+) error{
+    LockedMemoryLimitExceeded,
+    OutOfMemory,
+    SystemResources,
+    ThespianContextCreateFailed,
+    ThespianSpawnFailed,
+    ThreadQuotaExceeded,
+}!pid {
     const env_ = env__ orelse env.get();
     const Data = @TypeOf(data);
     var state: struct {
         io: std.Io,
         a: std.mem.Allocator,
         start_done: std.Io.Event = .unset,
-        err: ?anyerror = null,
+        err: ?error{
+            ThespianContextCreateFailed,
+            OutOfMemory,
+            ThespianSpawnFailed,
+        } = null,
         pid: ?pid = null,
         data: Data,
         f: Behaviour(Data).FunT,
@@ -654,7 +665,10 @@ pub fn spawn_pinned(
     } = .{ .io = io, .a = a, .data = data, .f = f, .name = name, .env_ = env_ };
 
     @TypeOf(state).trace(env_, .{ "PIN", name, "spawn" });
-    const thread = std.Thread.spawn(.{}, @TypeOf(state).run, .{&state}) catch |e| return e;
+    const thread = std.Thread.spawn(.{}, @TypeOf(state).run, .{&state}) catch |e| switch (e) {
+        error.Unexpected => return error.ThespianSpawnFailed,
+        else => |e_| return e_,
+    };
     state.start_done.waitUncancelable(state.io);
     if (state.err) |e| {
         thread.join();
