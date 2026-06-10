@@ -22,6 +22,7 @@ const cppflags = [_][]const u8{
 pub fn build(b: *std.Build) void {
     const enable_tracy_option = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)");
     const tracy_enabled = if (enable_tracy_option) |enabled| enabled else false;
+    const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
 
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -131,6 +132,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "c", .module = test_c_step.createModule() },
             },
         }),
+        .use_llvm = use_llvm,
     });
 
     tests.root_module.addImport("build_options", options_mod);
