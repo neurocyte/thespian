@@ -18,8 +18,8 @@ typedef struct thespian_handle_t *thespian_handle;
 
 thespian_handle thespian_handle_clone(thespian_handle);
 void thespian_handle_destroy(thespian_handle);
-/* Stable opaque actor identity (raw instance pointer). Two handles for the
-   same actor return the same value. Returns 0 for a null/expired handle. */
+/* Stable opaque actor identity. Two handles for the same actor
+   return the same value. Returns 0 for a null/expired handle. */
 uintptr_t thespian_handle_id(thespian_handle);
 
 thespian_result thespian_handle_send_raw(thespian_handle, cbor_buffer);
