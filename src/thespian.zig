@@ -114,8 +114,8 @@ fn Pid(comptime own: Ownership) type {
 
         /// Stable opaque actor identity. Two handles for the same actor
         /// return the same value. Returns 0 for a null/expired handle.
-        pub fn instance_id(self: Self) usize {
-            return c.thespian_handle_id(self.h);
+        pub fn instance_id(self: Self) piid {
+            return .fromInt(c.thespian_handle_id(self.h));
         }
 
         pub fn wait_expired(self: Self, timeout_ns: isize) error{Timeout}!void {
@@ -136,6 +136,8 @@ fn wrap_handle(h: c.thespian_handle) pid_ref {
 fn wrap_pid(h: c.thespian_handle) pid {
     return .{ .h = h };
 }
+
+pub const piid = @import("TypedInt").Tagged(usize, "PIID");
 
 pub const message = struct {
     buf: buffer_type = "",

@@ -88,6 +88,13 @@ pub fn build(b: *std.Build) void {
     });
     const cbor_mod = cbor_dep.module("cbor");
 
+    const TypedInt_mod = b.createModule(.{
+        .root_source_file = b.path("src/TypedInt.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+        },
+    });
+
     const c_step = b.addTranslateC(.{
         .root_source_file = b.path("src/c/c.h"),
         .target = target,
@@ -100,6 +107,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/thespian.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "TypedInt", .module = TypedInt_mod },
             .{ .name = "c", .module = c_step.createModule() },
         },
     });
