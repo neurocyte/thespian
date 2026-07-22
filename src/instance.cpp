@@ -85,7 +85,8 @@ using namespace std::chrono_literals;
 
 namespace thespian {
 
-static atomic<uintptr_t> next_instance_id{1}; // NOLINT(*-avoid-non-const-global-variables)
+static atomic<uintptr_t> next_instance_id{
+    1}; // NOLINT(*-avoid-non-const-global-variables)
 
 struct context_impl : context {
   explicit context_impl(executor::context executor)
@@ -547,7 +548,9 @@ auto ref_m(uintptr_t id, string name) -> buffer {
   return array("PID", id, move(name));
 }
 
-auto ref_m(const instance *p) -> buffer { return ref_m(p->instance_id(), p->name()); }
+auto ref_m(const instance *p) -> buffer {
+  return ref_m(p->instance_id(), p->name());
+}
 
 auto ref_m(const ref &r) -> buffer {
   if (auto p = r.lock())
@@ -771,25 +774,19 @@ struct timeout_impl {
       owner_.env_.trace(array("timeout", "set", m, us.count()));
 
     timer_.expires_after(us);
-    // Capture lifelock and dtor_cancelled instead of `this`.
-    // timeout_impl is owned by a unique_ptr and its destructor calls cancel();
-    // the ASIO callback is queued *after* ~timeout_impl returns, so `this`
-    // would be dangling.  lifelock keeps the instance alive; dtor_cancelled
-    // distinguishes destructor-triggered cancellation (where no notification
-    // is desired) from an explicit user cancel() call.
     timer_.on_expired([lifelock{owner_.lifetime_},
-                       dtor_cancelled{dtor_cancelled_},
-                       start, m(move(m))](const error_code &error) {
-      if (!lifelock) return;
+                       dtor_cancelled{dtor_cancelled_}, start,
+                       m(move(m))](const error_code &error) {
+      if (!lifelock)
+        return;
       if (lifelock->env_.enabled(channel::timer))
-        lifelock->env_.trace(array("timeout", "expired", m,
-                                   clk::now().time_since_epoch().count() - start,
-                                   error.value(), error.message()));
+        lifelock->env_.trace(
+            array("timeout", "expired", m,
+                  clk::now().time_since_epoch().count() - start, error.value(),
+                  error.message()));
       if (!error)
         auto _ = lifelock->send_raw(m);
       else if (!*dtor_cancelled)
-        // User called cancel() explicitly — preserve the existing timeout_error
-        // notification so callers can react (e.g. arm a different timer).
         auto _ = lifelock->send_raw(
             exit_message("timeout_error", error.value(), error.message()));
     });
@@ -802,8 +799,6 @@ struct timeout_impl {
 
   instance &owner_;
   executor::timer timer_;
-  // Shared with the timer callback so it can distinguish dtor cancellation
-  // from an explicit user cancel() without capturing `this`.
   shared_ptr<bool> dtor_cancelled_{make_shared<bool>(false)};
 };
 void timeout::cancel() {
