@@ -115,6 +115,61 @@ pub fn build(b: *std.Build) void {
     thespian_mod.addIncludePath(b.path("include"));
     thespian_mod.linkLibrary(lib);
 
+    const remote_mod = b.createModule(.{
+        .root_source_file = b.path("src/remote/remote.zig"),
+        .imports = &.{
+            .{ .name = "cbor", .module = cbor_mod },
+            .{ .name = "TypedInt", .module = TypedInt_mod },
+            .{ .name = "thespian", .module = thespian_mod },
+        },
+    });
+
+    const remote_child = b.addExecutable(.{
+        .name = "remote_child_send",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/remote_child_send.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "cbor", .module = cbor_mod },
+                .{ .name = "remote", .module = remote_mod },
+            },
+        }),
+        .use_llvm = use_llvm,
+    });
+
+    const remote_child_roundtrip = b.addExecutable(.{
+        .name = "remote_child_roundtrip",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/remote_child_roundtrip.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "cbor", .module = cbor_mod },
+                .{ .name = "remote", .module = remote_mod },
+            },
+        }),
+        .use_llvm = use_llvm,
+    });
+
+    const remote_child_endpoint = b.addExecutable(.{
+        .name = "remote_child_endpoint",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/remote_child_endpoint.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "thespian", .module = thespian_mod },
+                .{ .name = "cbor", .module = cbor_mod },
+                .{ .name = "remote", .module = remote_mod },
+            },
+        }),
+        .use_llvm = use_llvm,
+    });
+    remote_child_endpoint.root_module.linkLibrary(lib);
+    remote_child_endpoint.root_module.linkLibrary(asio_dep.artifact("asio"));
+    remote_child_endpoint.root_module.link_libcpp = true;
+
     if (lib.rootModuleTarget().os.tag != .windows) {
         const backtrace_step = b.addTranslateC(.{
             .root_source_file = b.path("include/thespian/backtrace.h"),
@@ -145,9 +200,14 @@ pub fn build(b: *std.Build) void {
         .filters = test_filters,
     });
 
+    options.addOptionPath("remote_child_path", remote_child.getEmittedBin());
+    options.addOptionPath("remote_child_roundtrip_path", remote_child_roundtrip.getEmittedBin());
+    options.addOptionPath("remote_child_endpoint_path", remote_child_endpoint.getEmittedBin());
+
     tests.root_module.addImport("build_options", options_mod);
     tests.root_module.addImport("cbor", cbor_mod);
     tests.root_module.addImport("thespian", thespian_mod);
+    tests.root_module.addImport("remote", remote_mod);
     tests.root_module.addIncludePath(b.path("test"));
     tests.root_module.addIncludePath(b.path("src"));
     tests.root_module.addIncludePath(b.path("include"));
