@@ -30,6 +30,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 
 #if !defined(_WIN32)
@@ -75,6 +76,7 @@ using std::string;
 using std::string_view;
 using std::stringstream;
 using std::swap;
+using std::unordered_map;
 using std::vector;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
@@ -85,8 +87,15 @@ using namespace std::chrono_literals;
 
 namespace thespian {
 
-static atomic<uintptr_t> next_instance_id{
-    1}; // NOLINT(*-avoid-non-const-global-variables)
+namespace {
+
+static atomic<uintptr_t>
+    next_instance_id // NOLINT(*-avoid-non-const-global-variables)
+    {1};
+
+static mutex instances_mux; // NOLINT(*-avoid-non-const-global-variables)
+static unordered_map<uintptr_t, ref>
+    instances; // NOLINT(*-avoid-non-const-global-variables)
 
 struct context_impl : context {
   explicit context_impl(executor::context executor)
@@ -110,6 +119,8 @@ struct context_impl : context {
   }
 };
 thread_local instance *current_instance{}; // NOLINT
+
+} // namespace
 
 namespace {
 auto impl(context &ctx) -> context_impl & {
@@ -207,7 +218,6 @@ template <typename... Ts>
 
 namespace {
 auto deadsend(const buffer &m, const ref &from) -> result;
-} // namespace
 const auto exit_normal_msg = array("exit", "normal");
 const auto exit_noreceive_msg = array("exit", "noreceive");
 const auto exit_nosyncreceive_msg = array("exit", "nosyncreceive");
@@ -229,6 +239,7 @@ template <class F> struct msg_task_T : msg_task {
 private:
   F f_;
 };
+} // namespace
 
 struct instance : std::enable_shared_from_this<instance> {
   instance(const instance &) = delete;
@@ -252,6 +263,10 @@ struct instance : std::enable_shared_from_this<instance> {
     ctx.active_add();
   }
   ~instance() {
+    {
+      lock_guard lk{instances_mux};
+      instances.erase(instance_id_);
+    }
     auto prev = ctx.active_sub();
     if (debug::isenabled(ctx)) {
       do_trace_links(channel::link);
@@ -272,6 +287,10 @@ struct instance : std::enable_shared_from_this<instance> {
     auto pimpl = make_shared<instance>(ctx, move(b), move(eh), name, move(env));
     pimpl->lifetime_ = pimpl;
     handle_ref(pimpl->self_ref_) = pimpl->lifetime_;
+    {
+      lock_guard lk{instances_mux};
+      instances.emplace(pimpl->instance_id_, ref{pimpl});
+    }
     pimpl->do_trace(channel::lifetime, "spawn");
     auto h = make_handle(pimpl);
     if (!link.expired()) {
@@ -616,6 +635,19 @@ auto instance_id(const handle &h) -> uintptr_t {
   if (auto sp = handle_ref(h).lock())
     return sp->instance_id_;
   return 0;
+}
+
+auto instance_by_id(uintptr_t id) -> handle {
+  ref r;
+  {
+    lock_guard lk{instances_mux};
+    auto it = instances.find(id);
+    if (it != instances.end())
+      r = it->second;
+  }
+  handle h{};
+  handle_ref(h) = move(r);
+  return h;
 }
 
 auto env() -> env_t & { return private_call().env_; }
@@ -1937,6 +1969,8 @@ auto get_names(context_impl &ctx) -> buffer {
 
 namespace tcp {
 
+namespace {
+
 struct connection {
   static constexpr string_view tag{"debug_tcp_connection"};
   context_impl &ctx;
@@ -2142,6 +2176,7 @@ struct acceptor {
         tag);
   }
 };
+} // namespace
 
 auto create(context &ctx, port_t port, const string &prompt)
     -> expected<handle, error> {

@@ -118,6 +118,14 @@ fn Pid(comptime own: Ownership) type {
             return .fromInt(c.thespian_handle_id(self.h));
         }
 
+        /// Look up an actor up by its piid. Returns `null` if the piid is unknown
+        /// or the actor has been destroyed.
+        pub fn from_id(id: piid) ?Pid(.Owned) {
+            const h = c.thespian_handle_from_id(id.toInt());
+            if (h == null) return null;
+            return .{ .h = h };
+        }
+
         pub fn wait_expired(self: Self, timeout_ns: isize) error{Timeout}!void {
             var max_sleep: isize = timeout_ns;
             while (!self.expired()) {

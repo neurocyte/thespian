@@ -18,9 +18,13 @@ typedef struct thespian_handle_t *thespian_handle;
 
 thespian_handle thespian_handle_clone(thespian_handle);
 void thespian_handle_destroy(thespian_handle);
-/* Stable opaque actor identity. Two handles for the same actor
-   return the same value. Returns 0 for a null/expired handle. */
+// Stable opaque actor identity. Two handles for the same actor return the
+// same value. Returns 0 for a null/expired handle.
 uintptr_t thespian_handle_id(thespian_handle);
+// Look up an actor up by its piid. Returns NULL if the piid is unknown or
+// the actor has been destroyed. The caller owns the returned handle and
+// must call `thespian_handle_destroy` on it.
+thespian_handle thespian_handle_from_id(uintptr_t);
 
 thespian_result thespian_handle_send_raw(thespian_handle, cbor_buffer);
 thespian_result thespian_handle_send_exit(thespian_handle, c_string_view);

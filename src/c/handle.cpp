@@ -75,4 +75,12 @@ auto thespian_handle_id(thespian_handle h) -> uintptr_t {
     return 0;
   return thespian::instance_id(*h_);
 }
+
+auto thespian_handle_from_id(uintptr_t id) -> thespian_handle {
+  thespian::handle h = thespian::instance_by_id(id);
+  if (h.expired())
+    return nullptr;
+  return reinterpret_cast<thespian_handle>( // NOLINT(*-reinterpret-cast)
+      new thespian::handle{std::move(h)});
+}
 }

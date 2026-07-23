@@ -51,4 +51,9 @@ auto operator==(const handle &, const handle &) -> bool;
 /// value. Returns 0 for a null or expired handle.
 [[nodiscard]] auto instance_id(const handle &h) -> uintptr_t;
 
+/// Look up an actor up by its piid in the process-wide registry. Returns
+/// an empty (expired) handle if the piid is unknown or the referenced
+/// actor has already been destroyed.
+[[nodiscard]] auto instance_by_id(uintptr_t id) -> handle;
+
 } // namespace thespian
