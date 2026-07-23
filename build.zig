@@ -23,6 +23,7 @@ pub fn build(b: *std.Build) void {
     const enable_tracy_option = b.option(bool, "enable_tracy", "Enable tracy client library (default: no)");
     const tracy_enabled = if (enable_tracy_option) |enabled| enabled else false;
     const use_llvm = b.option(bool, "use-llvm", "Enable llvm backend (default: none)");
+    const test_filters = b.option([]const []const u8, "test-filters", "Skip tests that do not match any filter") orelse &[0][]const u8{};
 
     const options = b.addOptions();
     options.addOption(bool, "enable_tracy", tracy_enabled);
@@ -141,6 +142,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
         .use_llvm = use_llvm,
+        .filters = test_filters,
     });
 
     tests.root_module.addImport("build_options", options_mod);
