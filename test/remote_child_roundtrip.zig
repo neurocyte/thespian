@@ -19,11 +19,8 @@ pub fn main(init: std.process.Init) !void {
     if (!try cbor.match(frame, .{"ping"})) return error.UnexpectedMessage;
 
     var msg_buf: [64]u8 = undefined;
-    var stream: std.Io.Writer = .fixed(&msg_buf);
-    try cbor.writeValue(&stream, .{"pong"});
-
-    var stdout_buf: [framing.max_frame_size + 4]u8 = undefined;
+    var stdout_buf: [4096]u8 = undefined;
     var stdout_w = std.Io.File.stdout().writer(init.io, &stdout_buf);
-    try framing.write_frame(&stdout_w.interface, stream.buffered());
+    try stdout_w.interface.writeAll(try framing.write_frame(&msg_buf, .{"pong"}));
     try stdout_w.interface.flush();
 }

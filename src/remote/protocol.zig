@@ -2,6 +2,7 @@ const std = @import("std");
 const cbor = @import("cbor");
 const TypedInt = @import("TypedInt");
 const tp = @import("thespian");
+const framing = @import("framing.zig");
 
 pub const ProtocolMessage = union(enum) {
     send: struct {
@@ -34,13 +35,15 @@ pub const ProtocolMessage = union(enum) {
     pub const lpiid = TypedInt.Tagged(usize, "LPID"); // local piid
     pub const piid = tp.piid;
 
-    pub fn encode(self: @This(), writer: *std.Io.Writer) !void {
+    pub const max_frame_size = 8 * 4096; // max_message_size
+
+    pub fn encode(self: @This(), buf: []u8) ![]u8 {
         return switch (self) {
-            .send => |v| cbor.writeValue(writer, .{ "send", v.from_id, v.to_id, v.payload }),
-            .send_named => |v| cbor.writeValue(writer, .{ "send_named", v.from_id, v.to_name, v.payload }),
-            .link => |v| cbor.writeValue(writer, .{ "link", v.local_id, v.remote_id }),
-            .exit => |v| cbor.writeValue(writer, .{ "exit", v.local_id, v.reason }),
-            .transport_error => |v| cbor.writeValue(writer, .{ "transport_error", v.reason }),
+            .send => |v| framing.write_frame(buf, .{ "send", v.from_id, v.to_id, v.payload }),
+            .send_named => |v| framing.write_frame(buf, .{ "send_named", v.from_id, v.to_name, v.payload }),
+            .link => |v| framing.write_frame(buf, .{ "link", v.local_id, v.remote_id }),
+            .exit => |v| framing.write_frame(buf, .{ "exit", v.local_id, v.reason }),
+            .transport_error => |v| framing.write_frame(buf, .{ "transport_error", v.reason }),
         };
     }
 

@@ -14,6 +14,7 @@ pub fn create(EndpointT: type) type {
         allocator: std.mem.Allocator,
         accumulator: framing.Accumulator = .{},
         remote_proxies: std.AutoHashMapUnmanaged(rpiid, tp.pid) = .empty,
+        frame_buf: [protocol.max_frame_size]u8 = undefined,
 
         pub fn init(allocator: std.mem.Allocator) @This() {
             return .{
@@ -127,13 +128,8 @@ pub fn create(EndpointT: type) type {
         }
 
         fn send_wire(self: *@This(), msg: protocol) !void {
-            var msg_buf: [framing.max_frame_size]u8 = undefined;
-            var msg_stream: std.Io.Writer = .fixed(&msg_buf);
-            try msg.encode(&msg_stream);
-            var frame_buf: [framing.max_frame_size + 4]u8 = undefined;
-            var frame_stream: std.Io.Writer = .fixed(&frame_buf);
-            try framing.write_frame(&frame_stream, msg_stream.buffered());
-            try self.send_frame(frame_stream.buffered());
+            const frame = try msg.encode(&self.frame_buf);
+            try self.send_frame(frame);
         }
 
         fn send_frame(self: *@This(), frame: []const u8) !void {

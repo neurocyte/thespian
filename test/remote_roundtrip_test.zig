@@ -37,15 +37,9 @@ const Parent = struct {
             .pipe,
         );
 
-        // Encode ["ping"] and send it as a framed message to the child's stdin.
-        var msg_buf: [64]u8 = undefined;
-        var msg_stream: std.Io.Writer = .fixed(&msg_buf);
-        try cbor.writeValue(&msg_stream, .{"ping"});
-
         var frame_buf: [68]u8 = undefined;
-        var frame_stream: std.Io.Writer = .fixed(&frame_buf);
-        try framing.write_frame(&frame_stream, msg_stream.buffered());
-        try proc.send(frame_stream.buffered());
+        const frame = try framing.write_frame(&frame_buf, .{"ping"});
+        try proc.send(frame);
         try proc.close();
 
         const self = try args.allocator.create(@This());

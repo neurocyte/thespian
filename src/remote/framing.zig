@@ -1,10 +1,21 @@
 const std = @import("std");
 const cbor = @import("cbor");
 
-pub const max_frame_size = 16 * 1024;
+pub fn write_frame(buf: []u8, value: anytype) ![]u8 {
+    if (buf.len < 5) return error.TooShort;
 
-pub fn write_frame(writer: *std.Io.Writer, payload: []const u8) !void {
-    try cbor.writeValue(writer, payload);
+    const payload = buf[5..];
+    var writer = std.Io.Writer.fixed(payload);
+
+    try cbor.writeValue(&writer, value);
+
+    const written = writer.end;
+
+    // fixed 32-bit length header
+    buf[0] = 0x5a; // cbor.bytes
+    std.mem.writeInt(u32, buf[1..5], @as(u32, @intCast(written)), .big);
+
+    return buf[0 .. 5 + written];
 }
 
 pub const Accumulator = struct {
