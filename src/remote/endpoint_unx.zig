@@ -1,0 +1,185 @@
+const std = @import("std");
+const tp = @import("thespian");
+const cbor = @import("cbor");
+
+const endpoint_connection = @import("endpoint_connection.zig");
+
+const acceptor_tag = "EPUNX_L";
+const connector_tag = "EPUNX_c";
+
+pub fn listen(
+    allocator: std.mem.Allocator,
+    path: [:0]const u8,
+    mode: tp.unx_mode,
+    owner: tp.pid,
+) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+    return tp.spawn_link(
+        allocator,
+        Listener.Args{
+            .allocator = allocator,
+            .path = path,
+            .mode = mode,
+            .owner = owner,
+        },
+        Listener.start,
+        @typeName(@This()) ++ ".listen",
+    );
+}
+
+pub fn connect(
+    allocator: std.mem.Allocator,
+    path: [:0]const u8,
+    mode: tp.unx_mode,
+    owner: tp.pid,
+) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+    return tp.spawn_link(
+        allocator,
+        Connector.Args{
+            .allocator = allocator,
+            .path = path,
+            .mode = mode,
+            .owner = owner,
+        },
+        Connector.start,
+        @typeName(@This()) ++ ".connect",
+    );
+}
+
+const Listener = struct {
+    allocator: std.mem.Allocator,
+    acceptor: tp.unx_acceptor,
+    owner: tp.pid,
+    path: [:0]const u8,
+    receiver: tp.Receiver(*@This()),
+
+    const Args = struct {
+        allocator: std.mem.Allocator,
+        path: [:0]const u8,
+        mode: tp.unx_mode,
+        owner: tp.pid,
+    };
+
+    fn start(args: Args) tp.result {
+        return init(args) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn init(args: Args) !void {
+        const acceptor = try tp.unx_acceptor.init(acceptor_tag);
+        const self = try args.allocator.create(@This());
+        self.* = .{
+            .allocator = args.allocator,
+            .acceptor = acceptor,
+            .owner = args.owner,
+            .path = args.path,
+            .receiver = .init(receive, deinit, self),
+        };
+        errdefer self.deinit();
+
+        _ = tp.set_trap(true);
+        try self.acceptor.listen(args.path, args.mode);
+        tp.receive(&self.receiver);
+    }
+
+    fn deinit(self: *@This()) void {
+        self.owner.deinit();
+        self.acceptor.deinit();
+        self.allocator.destroy(self);
+    }
+
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) tp.result {
+        return self.receive_safe(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive_safe(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+        var fd: i32 = 0;
+        var reason: []const u8 = "";
+
+        if (try m.match(.{ "acceptor", acceptor_tag, "accept", tp.extract(&fd) })) {
+            const conn = try endpoint_connection.start(self.allocator, fd);
+            defer conn.deinit();
+            try self.owner.send(.{ "connected", conn.instance_id() });
+        } else if (try m.match(.{ "acceptor", acceptor_tag, "error", tp.any, tp.extract(&reason) })) {
+            return tp.exit(reason);
+        } else if (try m.match(.{ "acceptor", acceptor_tag, "closed" })) {
+            return tp.exit_normal();
+        } else if (try m.match(.{ "get", "path" })) {
+            try self.owner.send(.{ "path", self.path });
+        } else if (try m.match(.{"close"})) {
+            try self.acceptor.close();
+        } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
+            self.acceptor.close() catch {};
+            return tp.exit(reason);
+        } else {
+            return tp.unexpected(m);
+        }
+    }
+};
+
+const Connector = struct {
+    allocator: std.mem.Allocator,
+    connector: tp.unx_connector,
+    owner: tp.pid,
+    connected: bool = false,
+    receiver: tp.Receiver(*@This()),
+
+    const Args = struct {
+        allocator: std.mem.Allocator,
+        path: [:0]const u8,
+        mode: tp.unx_mode,
+        owner: tp.pid,
+    };
+
+    fn start(args: Args) tp.result {
+        return init(args) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn init(args: Args) !void {
+        const connector = try tp.unx_connector.init(connector_tag);
+        const self = try args.allocator.create(@This());
+        self.* = .{
+            .allocator = args.allocator,
+            .connector = connector,
+            .owner = args.owner,
+            .receiver = .init(receive, deinit, self),
+        };
+        errdefer self.deinit();
+
+        _ = tp.set_trap(true);
+        try self.connector.connect(args.path, args.mode);
+        tp.receive(&self.receiver);
+    }
+
+    fn deinit(self: *@This()) void {
+        self.owner.deinit();
+        self.connector.deinit();
+        self.allocator.destroy(self);
+    }
+
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) tp.result {
+        return self.receive_safe(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive_safe(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+        var fd: i32 = 0;
+        var reason: []const u8 = "";
+
+        if (try m.match(.{ "connector", connector_tag, "connected", tp.extract(&fd) })) {
+            self.connected = true;
+            const conn = try endpoint_connection.start(self.allocator, fd);
+            defer conn.deinit();
+            try self.owner.send(.{ "connected", conn.instance_id() });
+            return tp.exit_normal();
+        } else if (try m.match(.{ "connector", connector_tag, "error", tp.any, tp.extract(&reason) })) {
+            return tp.exit(reason);
+        } else if (try m.match(.{ "connector", connector_tag, "cancelled" })) {
+            return tp.exit_normal();
+        } else if (try m.match(.{"cancel"})) {
+            self.connector.cancel() catch {};
+        } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
+            if (!self.connected) self.connector.cancel() catch {};
+            return tp.exit(reason);
+        } else {
+            return tp.unexpected(m);
+        }
+    }
+};
