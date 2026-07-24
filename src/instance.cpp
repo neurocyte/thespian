@@ -175,12 +175,9 @@ constexpr auto context_error = "call out of context";
 
 auto handle_ref(handle &h) -> ref & { return h.ref_; }
 auto handle_ref(const handle &h) -> const ref & { return h.ref_; }
+auto handle_id(handle &h) -> uintptr_t & { return h.id_; }
 namespace {
-auto make_handle(ref &&r) -> handle {
-  handle h{};
-  handle_ref(h) = move(r);
-  return h;
-}
+auto make_handle(ref &&r) -> handle;
 auto ref_m(const instance *p) -> buffer;
 auto ref_m(const ref &r) -> buffer;
 
@@ -286,7 +283,7 @@ struct instance : std::enable_shared_from_this<instance> {
       -> expected<handle, error> {
     auto pimpl = make_shared<instance>(ctx, move(b), move(eh), name, move(env));
     pimpl->lifetime_ = pimpl;
-    handle_ref(pimpl->self_ref_) = pimpl->lifetime_;
+    pimpl->self_ref_ = make_handle(ref{pimpl->lifetime_});
     {
       lock_guard lk{instances_mux};
       instances.emplace(pimpl->instance_id_, ref{pimpl});
@@ -294,7 +291,7 @@ struct instance : std::enable_shared_from_this<instance> {
     pimpl->do_trace(channel::lifetime, "spawn");
     auto h = make_handle(pimpl);
     if (!link.expired()) {
-      auto ret = pimpl->queue(link, link_msg);
+      auto ret = pimpl->queue(make_handle(ref{link}), link_msg);
       if (not ret)
         return to_error(ret.error());
     }
@@ -362,12 +359,12 @@ struct instance : std::enable_shared_from_this<instance> {
   }
 
   [[nodiscard]] auto dispatch_sync_raw(buffer m) -> result {
-    ref from{};
+    handle from{};
     if (current_instance)
-      from = current_instance->lifetime_;
+      from = current_instance->self_ref_;
     if (in_shutdown)
-      return deadsend(m, from);
-    run(from, move(m));
+      return deadsend(m, handle_ref(from));
+    run(move(from), move(m));
     return ok();
   }
   template <typename... Ts>
@@ -375,20 +372,20 @@ struct instance : std::enable_shared_from_this<instance> {
     return dispatch_sync_raw(array(std::forward<Ts>(parms)...));
   }
 
-  [[nodiscard]] auto queue(const ref &from, buffer m) -> result {
+  [[nodiscard]] auto queue(handle from, buffer m) -> result {
     if ((not m.is_null()) and is_enabled(channel::send))
-      do_trace_raw(ref_m(from), "send", ref_m(this), m);
+      do_trace_raw(ref_m(handle_ref(from)), "send", ref_m(this), m);
     if (in_shutdown)
-      return deadsend(m, from);
+      return deadsend(m, handle_ref(from));
 
-    auto run_m = [this, from{from}, m{move(m)}, lifelock{lifetime_}]() {
+    auto run_m = [this, from{move(from)}, m{move(m)}, lifelock{lifetime_}]() {
       run(from, m);
     };
     submit_msg_task(move(run_m));
     return ok();
   }
   [[nodiscard]] auto schedule() -> result {
-    return queue(ref{}, buffer::null_value);
+    return queue(handle{}, buffer::null_value);
   }
 
   void handle_exit(const buffer &m) {
@@ -413,14 +410,14 @@ struct instance : std::enable_shared_from_this<instance> {
     lifetime_.reset();
   }
 
-  void run(ref from, buffer msg) {
+  void run(handle from, buffer msg) {
 #ifdef TRACY_ENABLE
     ZoneScopedN("actor");
 #endif
     if (is_link_msg(msg)) {
       do_trace(channel::execute, "run");
-      do_trace_to(channel::link, "link", from);
-      links_.emplace_front(make_handle(move(from)));
+      do_trace_to(channel::link, "link", handle_ref(from));
+      links_.emplace_front(move(from));
       if (debug::isenabled(ctx))
         do_trace_links(channel::link);
       do_trace(channel::execute, "sleep");
@@ -440,8 +437,8 @@ struct instance : std::enable_shared_from_this<instance> {
           handle_exit(msg);
       } else {
         if (!msg.is_null())
-          do_trace_to(channel::receive, "receive", from, msg);
-        ret = receiver_(make_handle(move(from)), move(msg));
+          do_trace_to(channel::receive, "receive", handle_ref(from), msg);
+        ret = receiver_(move(from), move(msg));
         if (ret && current_instance && !receiver_)
           handle_exit(exit_noreceive_msg);
       }
@@ -480,10 +477,10 @@ struct instance : std::enable_shared_from_this<instance> {
   }
 
   [[nodiscard]] auto send_raw(buffer m) -> result {
-    ref from{};
+    handle from{};
     if (current_instance)
-      from = current_instance->lifetime_;
-    return queue(from, move(m));
+      from = current_instance->self_ref_;
+    return queue(move(from), move(m));
   }
   template <typename... Ts> [[nodiscard]] auto send(Ts &&...parms) -> result {
     return send_raw(array(std::forward<Ts>(parms)...));
@@ -632,10 +629,18 @@ auto context::spawn_link(behaviour b, exit_handler eh, string_view name)
 }
 
 auto instance_id(const handle &h) -> uintptr_t {
-  if (auto sp = handle_ref(h).lock())
-    return sp->instance_id_;
-  return 0;
+  return handle_id(const_cast<handle &>(h));
 }
+
+namespace {
+auto make_handle(ref &&r) -> handle {
+  handle h{};
+  if (auto sp = r.lock())
+    handle_id(h) = sp->instance_id_;
+  handle_ref(h) = move(r);
+  return h;
+}
+} // namespace
 
 auto instance_by_id(uintptr_t id) -> handle {
   ref r;
@@ -645,9 +650,7 @@ auto instance_by_id(uintptr_t id) -> handle {
     if (it != instances.end())
       r = it->second;
   }
-  handle h{};
-  handle_ref(h) = move(r);
-  return h;
+  return make_handle(move(r));
 }
 
 auto env() -> env_t & { return private_call().env_; }

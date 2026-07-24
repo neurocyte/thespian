@@ -39,8 +39,10 @@ struct handle {
 
 private:
   ref ref_;
+  uintptr_t id_{0};
   friend auto handle_ref(handle &) -> ref &;
   friend auto handle_ref(const handle &) -> const ref &;
+  friend auto handle_id(handle &) -> uintptr_t &;
   friend auto operator==(const handle &, const handle &) -> bool;
 };
 
@@ -48,7 +50,7 @@ auto operator==(const handle &, const handle &) -> bool;
 
 /// Stable numeric actor identity assigned at spawn (atomic incrementing
 /// counter, starting at 1). Two handles for the same actor return the same
-/// value. Returns 0 for a null or expired handle.
+/// value. Returns 0 for a null handle.
 [[nodiscard]] auto instance_id(const handle &h) -> uintptr_t;
 
 /// Look up an actor up by its piid in the process-wide registry. Returns
