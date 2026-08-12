@@ -6,19 +6,32 @@
 //!        \ /
 //!         D
 //!
-//! * `A` listens on two paths and spawns `B` and `C` as subprocesses.
-//! * `B` connects to `A`, spawns `D` as a subprocess, then connects to `D`.
-//! * `C` connects to `A`, and (once `A` tells it that `D` is up) connects to `D`.
-//! * `D` listens for `B` and `C`; each node registers a well-known
-//!   `app_*` actor and logs the pings it receives.
+//! * A listens on two paths and spawns B and C as subprocesses.
+//! * B connects to A, spawns D as a subprocess, then connects to D.
+//! * C connects to A, and (once A tells it that D is up) connects to D.
+//! * D listens for B and C; each node registers a well-known app_* actor
+//!   and logs the pings it receives.
 //!
 //! Coordination:
-//! * `D` prints `D_READY\n` to its stdout once its listener has bound;
-//!   `B` (its spawner) reads that, then connects to `D`.
-//! * `B` tells `A` via `d_ready`, and `A` relays `connect_d` to `C`.
-//! * When `A` has heard `d_ready` and `c_ready`, it knows all four
-//!   diamond edges are up and fans out three pings (one direct to each
-//!   of `B` and `C`, one that `B` relays to `D` via the `B-D` socket).
+//! * D prints D_READY to its stdout once its listener has bound; B (its
+//!   spawner) reads that, then connects to D.
+//! * B tells A via d_ready, and A relays connect_d to C.
+//! * When A has heard d_ready and c_ready, it knows all four diamond edges
+//!   are up and fans out three bootstrap pings (one direct to each of B
+//!   and C, one that B relays to D via the B↔D socket, with A's identity
+//!   preserved so D's reply-path traverses D→B→A).
+//!
+//! Proxies:
+//!
+//! Each remote node replies pong_x to its ping via from.send(...).
+//! On the return path a proxy actor is spawned on A for each remote
+//! actor - for B and C a one-hop proxy over their direct socket, for
+//! D a **double-hop** proxy whose wire target is B's own proxy for
+//! app_d. A captures the from pid of each pong_x as proxy_b,
+//! proxy_c, proxy_d and then sends a second round ping2 *through
+//! those proxy pids*, exercising real proxy dispatch (one-hop and
+//! two-hop). Once all three pong2_x replies arrive A closes the
+//! sockets, which cascades a clean shutdown across the diamond.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -83,11 +96,15 @@ const NodeA = struct {
     proc_c: ?tp.subprocess = null,
     ab_conn: ?tp.pid = null,
     ac_conn: ?tp.pid = null,
-    shutdown_timer: ?tp.timeout = null,
+    proxy_b: ?tp.pid = null,
+    proxy_c: ?tp.pid = null,
+    proxy_d: ?tp.pid = null,
     listeners_ready: u8 = 0,
-    pings_sent: bool = false,
     b_ready: bool = false,
     c_ready: bool = false,
+    phase: enum { waiting, bootstrap, verify, done } = .waiting,
+    pong_count: u8 = 0,
+    pong2_count: u8 = 0,
     receiver: tp.Receiver(*@This()),
 
     const b_tag = "PROC_B";
@@ -181,7 +198,9 @@ const NodeA = struct {
     }
 
     fn deinit(self: *@This()) void {
-        if (self.shutdown_timer) |*t| t.deinit();
+        if (self.proxy_b) |*p| p.deinit();
+        if (self.proxy_c) |*p| p.deinit();
+        if (self.proxy_d) |*p| p.deinit();
         if (self.ab_conn) |*p| p.deinit();
         if (self.ac_conn) |*p| p.deinit();
         if (self.proc_b) |*p| p.deinit();
@@ -223,7 +242,19 @@ const NodeA = struct {
         } else if (try m.match(.{"c_ready"})) {
             self.c_ready = true;
             say(self.io, "[a] C reports READY\n", .{});
-            try self.maybe_ping();
+            try self.maybe_bootstrap();
+        } else if (try m.match(.{"pong_b"})) {
+            try self.capture_proxy("b", &self.proxy_b, from);
+        } else if (try m.match(.{"pong_c"})) {
+            try self.capture_proxy("c", &self.proxy_c, from);
+        } else if (try m.match(.{"pong_d"})) {
+            try self.capture_proxy("d", &self.proxy_d, from);
+        } else if (try m.match(.{"pong2_b"})) {
+            return self.tally_pong2("b", self.proxy_b.?, from);
+        } else if (try m.match(.{"pong2_c"})) {
+            return self.tally_pong2("c", self.proxy_c.?, from);
+        } else if (try m.match(.{"pong2_d"})) {
+            return self.tally_pong2("d", self.proxy_d.?, from);
         } else if (try m.match(.{ b_tag, "stdout", tp.extract(&bytes) })) {
             self.log_child_stdout("b", bytes);
         } else if (try m.match(.{ b_tag, "stderr", tp.extract(&bytes) })) {
@@ -236,13 +267,6 @@ const NodeA = struct {
             // subprocess exit ignored - we drive shutdown by closing sockets.
         } else if (try m.match(.{ c_tag, "term", tp.any, tp.any })) {
             // ditto
-        } else if (try m.match(.{"shutdown"})) {
-            say(self.io, "[a] shutting down\n", .{});
-            // Close our own connections; peers will see peer_closed and exit,
-            // which propagates down through B->D and C->D too.
-            if (self.ab_conn) |p| p.send(.{ "exit", "shutdown" }) catch {};
-            if (self.ac_conn) |p| p.send(.{ "exit", "shutdown" }) catch {};
-            return tp.exit("success");
         } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
             if (std.mem.eql(u8, reason, "normal")) return;
             return tp.unexpected(m);
@@ -259,16 +283,53 @@ const NodeA = struct {
         self.proc_c = try tp.subprocess.init(self.io, self.allocator, argv_c, c_tag, .ignore);
     }
 
-    fn maybe_ping(self: *@This()) !void {
-        if (self.pings_sent or !self.b_ready or !self.c_ready) return;
-        self.pings_sent = true;
-        say(self.io, "[a] all peers ready; sending three pings\n", .{});
+    fn maybe_bootstrap(self: *@This()) !void {
+        if (self.phase != .waiting or !self.b_ready or !self.c_ready) return;
+        self.phase = .bootstrap;
+        say(self.io, "[a] all peers ready; sending three bootstrap pings\n", .{});
         const my_id = lpiid.fromInt(tp.self_pid().instance_id().toInt());
         try self.ab_conn.?.send(.{ "send", my_id, "app_b", .{ "ping", "A" } });
         try self.ac_conn.?.send(.{ "send", my_id, "app_c", .{ "ping", "A" } });
+        // Relay via B: B forwards preserving *our* identity, so D's reply
+        // travels D→B→A and bootstraps a two-hop proxy on A whose wire
+        // target is B's proxy for app_d.
         try self.ab_conn.?.send(.{ "send", my_id, "app_b", .{ "relay_ping", "app_d", "A" } });
-        // give receivers time to log, then shut down.
-        self.shutdown_timer = try tp.timeout.init_ms(500, tp.message.fmt(.{"shutdown"}));
+    }
+
+    fn capture_proxy(self: *@This(), label: []const u8, slot: *?tp.pid, from: tp.pid_ref) !void {
+        if (self.phase != .bootstrap) return error.UnexpectedBootstrapPong;
+        if (slot.*) |*p| p.deinit();
+        slot.* = from.clone();
+        self.pong_count += 1;
+        say(self.io, "[a] captured proxy for {s} (pong {d}/3)\n", .{ label, self.pong_count });
+        try self.maybe_verify();
+    }
+
+    fn maybe_verify(self: *@This()) !void {
+        if (self.phase != .bootstrap or self.pong_count < 3) return;
+        self.phase = .verify;
+        say(self.io, "[a] proxies bootstrapped; sending three verify pings via proxy pids\n", .{});
+        try self.proxy_b.?.send(.{ "ping2", "A" });
+        try self.proxy_c.?.send(.{ "ping2", "A" });
+        // proxy_d is a two-hop proxy on A whose wire target is B's proxy
+        // for app_d. Sending here traverses A→B→D end-to-end.
+        try self.proxy_d.?.send(.{ "ping2", "A" });
+    }
+
+    fn tally_pong2(self: *@This(), label: []const u8, expected_proxy: tp.pid, from: tp.pid_ref) !void {
+        if (self.phase != .verify) return error.UnexpectedVerifyPong;
+        if (from.instance_id() != expected_proxy.instance_id())
+            return error.ProxyIdentityMismatch;
+        self.pong2_count += 1;
+        say(self.io, "[a] pong2_{s} arrived on saved proxy (pong2 {d}/3)\n", .{ label, self.pong2_count });
+        if (self.pong2_count < 3) return;
+        self.phase = .done;
+        say(self.io, "[a] all proxy pongs received; shutting down\n", .{});
+        // Close our own connections; peers will see peer_closed and exit,
+        // which propagates down through B→D and C→D too.
+        if (self.ab_conn) |p| p.send(.{ "exit", "shutdown" }) catch {};
+        if (self.ac_conn) |p| p.send(.{ "exit", "shutdown" }) catch {};
+        return tp.exit("success");
     }
 
     fn log_child_stdout(self: *@This(), label: []const u8, bytes: []const u8) void {
@@ -373,7 +434,7 @@ const NodeB = struct {
         return self.receive(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
-    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
         var conn_id: piid = .empty;
         var bytes: []const u8 = "";
         var origin: []const u8 = "";
@@ -412,11 +473,18 @@ const NodeB = struct {
         } else if (try m.match(.{ d_tag, "term", tp.any, tp.any })) {
             // ignore
         } else if (try m.match(.{ "ping", tp.extract(&origin) })) {
-            say(self.io, "[b] received PING from {s}\n", .{origin});
+            say(self.io, "[b] received PING from {s}; replying pong_b\n", .{origin});
+            try from.send(.{"pong_b"});
+        } else if (try m.match(.{ "ping2", tp.extract(&origin) })) {
+            say(self.io, "[b] received PING2 (via proxy) from {s}; replying pong2_b\n", .{origin});
+            try from.send(.{"pong2_b"});
         } else if (try m.match(.{ "relay_ping", tp.extract(&target), tp.extract(&origin) })) {
             say(self.io, "[b] relaying PING from {s} to {s} via BD\n", .{ origin, target });
-            const my_id = lpiid.fromInt(tp.self_pid().instance_id().toInt());
-            try self.d_conn.?.send(.{ "send", my_id, target, .{ "ping", origin } });
+            // Forward using the caller's identity (A's proxy on us) so D's
+            // reply-path traverses D→B then B→A and bootstraps a two-hop proxy
+            // on A. Using our own id would strand the reply at us.
+            const from_id = lpiid.fromInt(from.instance_id().toInt());
+            try self.d_conn.?.send(.{ "send", from_id, target, .{ "ping", origin } });
         } else if (try m.match(.{ "endpoint_exit", tp.extract(&reason) })) {
             // A or D closed the socket; time to exit.
             return tp.exit_normal();
@@ -513,7 +581,7 @@ const NodeC = struct {
         return self.receive(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
-    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
         var conn_id: piid = .empty;
         var origin: []const u8 = "";
         var reason: []const u8 = "";
@@ -533,7 +601,11 @@ const NodeC = struct {
             say(self.io, "[c] told to connect_d; connecting\n", .{});
             self.connect_cd = try endpoint.connect(self.allocator, self.path_d, sock_mode, tp.self_pid().clone());
         } else if (try m.match(.{ "ping", tp.extract(&origin) })) {
-            say(self.io, "[c] received PING from {s}\n", .{origin});
+            say(self.io, "[c] received PING from {s}; replying pong_c\n", .{origin});
+            try from.send(.{"pong_c"});
+        } else if (try m.match(.{ "ping2", tp.extract(&origin) })) {
+            say(self.io, "[c] received PING2 (via proxy) from {s}; replying pong2_c\n", .{origin});
+            try from.send(.{"pong2_c"});
         } else if (try m.match(.{ "endpoint_exit", tp.extract(&reason) })) {
             return tp.exit_normal();
         } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
@@ -623,7 +695,7 @@ const NodeD = struct {
         return self.receive(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
     }
 
-    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
         var conn_id: piid = .empty;
         var origin: []const u8 = "";
         var path_out: []const u8 = "";
@@ -641,7 +713,11 @@ const NodeD = struct {
                 conn.deinit();
             }
         } else if (try m.match(.{ "ping", tp.extract(&origin) })) {
-            say(self.io, "[d] received PING from {s}\n", .{origin});
+            say(self.io, "[d] received PING from {s}; replying pong_d\n", .{origin});
+            try from.send(.{"pong_d"});
+        } else if (try m.match(.{ "ping2", tp.extract(&origin) })) {
+            say(self.io, "[d] received PING2 (via proxy) from {s}; replying pong2_d\n", .{origin});
+            try from.send(.{"pong2_d"});
         } else if (try m.match(.{ "endpoint_exit", tp.extract(&reason) })) {
             // A remote connection went down; if both are gone, quit.
             var alive: u8 = 0;
