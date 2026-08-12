@@ -33,6 +33,13 @@ void thespian_receive(thespian_receiver r, thespian_behaviour_state s,
 auto thespian_get_trap() -> bool { return thespian::trap(); }
 auto thespian_set_trap(bool on) -> bool { return thespian::trap(on); }
 
+auto thespian_get_observe_links() -> bool {
+  return thespian::observe_links();
+}
+auto thespian_set_observe_links(bool on) -> bool {
+  return thespian::observe_links(on);
+}
+
 namespace {
 thread_local cbor::buffer exit_msg_buf;     // NOLINT
 thread_local thespian_error exit_error_buf; // NOLINT

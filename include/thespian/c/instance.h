@@ -21,6 +21,8 @@ thespian_result thespian_unexpected(cbor_buffer msg);
 
 bool thespian_get_trap();
 bool thespian_set_trap(bool);
+bool thespian_get_observe_links();
+bool thespian_set_observe_links(bool);
 void thespian_link(thespian_handle);
 
 thespian_handle thespian_self();
