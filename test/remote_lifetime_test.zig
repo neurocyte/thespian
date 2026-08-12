@@ -68,7 +68,7 @@ const TestActor = struct {
         switch (self.state) {
             .waiting_for_trigger_reply => {
                 if (try m.match(.{"trigger"})) {
-                    try from.send(.{"establish_wire_link"});
+                    try from.link();
                     try from.send(.{"die"});
                     self.state = .waiting_for_proxy_exit;
                 } else {
@@ -88,7 +88,7 @@ const TestActor = struct {
     }
 };
 
-test "remote: cross-process link/exit propagation via wire link protocol" {
+test "remote: cross-process link/exit propagation via plain pid.link()" {
     const allocator = std.testing.allocator;
 
     var initial_env: ?thespian.env = null;

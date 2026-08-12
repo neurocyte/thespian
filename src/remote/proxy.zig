@@ -35,6 +35,8 @@ const Proxy = struct {
         };
         errdefer self.deinit();
         _ = tp.set_trap(true);
+        // Observe incoming link messages so we can propagate them.
+        _ = tp.set_observe_links(true);
         tp.receive(&self.receiver);
     }
 
@@ -66,8 +68,7 @@ const Proxy = struct {
             }
             self.endpoint.send(.{ "proxy_exit", self.remote_id, reason }) catch {};
             return tp.exit(reason);
-        } else if (try m.match(.{"establish_wire_link"})) {
-            try from.link();
+        } else if (try m.match(.{"link"})) {
             try self.endpoint.send(.{
                 "link_wire",
                 lpiid.fromInt(from.instance_id().toInt()),
