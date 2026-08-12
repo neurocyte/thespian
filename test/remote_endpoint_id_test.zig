@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const protocol = @import("remote").protocol;
 const endpoint = @import("remote").endpoint.subprocess;
 const build_options = @import("build_options");
+const child_helper = @import("child_helper.zig");
 
 var trace_file: ?std.Io.File = null;
 var trace_buf: [4096]u8 = undefined;
@@ -37,7 +38,9 @@ const TestActor = struct {
     fn init(args: Args) !void {
         thespian.env.get().proc_set("test_receiver", thespian.self_pid().ref());
 
-        const argv: cbor.Raw = .{ .bytes = message.fmt(.{build_options.remote_child_endpoint_path}).buf };
+        const child_path = try child_helper.resolve(args.allocator, std.testing.io, "remote_child_endpoint", build_options.remote_child_endpoint_path);
+        defer args.allocator.free(child_path);
+        const argv: cbor.Raw = .{ .bytes = message.fmt(.{child_path}).buf };
         const ep = try endpoint.start(std.testing.io, args.allocator, argv);
 
         try ep.send(.{ "send", protocol.lpiid.empty, "echo_id", .{"hello"} });

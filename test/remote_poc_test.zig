@@ -4,6 +4,7 @@ const cbor = @import("cbor");
 const framing = @import("remote").framing;
 const protocol = @import("remote").protocol;
 const build_options = @import("build_options");
+const child_helper = @import("child_helper.zig");
 
 const Allocator = std.mem.Allocator;
 const result = thespian.result;
@@ -30,10 +31,12 @@ const Parent = struct {
     }
 
     fn init(args: Args) !void {
+        const child_path = try child_helper.resolve(args.allocator, args.io, "remote_child_send", build_options.remote_child_path);
+        defer args.allocator.free(child_path);
         const proc = try subprocess.init(
             args.io,
             args.allocator,
-            message.fmt(.{build_options.remote_child_path}),
+            message.fmt(.{child_path}),
             tag,
             .ignore,
         );

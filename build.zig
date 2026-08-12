@@ -137,6 +137,7 @@ pub fn build(b: *std.Build) void {
         }),
         .use_llvm = use_llvm,
     });
+    b.installArtifact(remote_child);
 
     const remote_child_roundtrip = b.addExecutable(.{
         .name = "remote_child_roundtrip",
@@ -151,6 +152,7 @@ pub fn build(b: *std.Build) void {
         }),
         .use_llvm = use_llvm,
     });
+    b.installArtifact(remote_child_roundtrip);
 
     const remote_child_endpoint = b.addExecutable(.{
         .name = "remote_child_endpoint",
@@ -169,6 +171,7 @@ pub fn build(b: *std.Build) void {
     remote_child_endpoint.root_module.linkLibrary(lib);
     remote_child_endpoint.root_module.linkLibrary(asio_dep.artifact("asio"));
     remote_child_endpoint.root_module.link_libcpp = true;
+    b.installArtifact(remote_child_endpoint);
 
     const remote_diamond = b.addExecutable(.{
         .name = "remote_diamond",
