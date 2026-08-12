@@ -170,6 +170,25 @@ pub fn build(b: *std.Build) void {
     remote_child_endpoint.root_module.linkLibrary(asio_dep.artifact("asio"));
     remote_child_endpoint.root_module.link_libcpp = true;
 
+    const remote_diamond = b.addExecutable(.{
+        .name = "remote_diamond",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/remote_diamond.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "thespian", .module = thespian_mod },
+                .{ .name = "cbor", .module = cbor_mod },
+                .{ .name = "remote", .module = remote_mod },
+            },
+        }),
+        .use_llvm = use_llvm,
+    });
+    remote_diamond.root_module.linkLibrary(lib);
+    remote_diamond.root_module.linkLibrary(asio_dep.artifact("asio"));
+    remote_diamond.root_module.link_libcpp = true;
+    b.installArtifact(remote_diamond);
+
     if (lib.rootModuleTarget().os.tag != .windows) {
         const backtrace_step = b.addTranslateC(.{
             .root_source_file = b.path("include/thespian/backtrace.h"),
