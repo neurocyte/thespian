@@ -23,15 +23,28 @@
 //!
 //! Proxies:
 //!
-//! Each remote node replies pong_x to its ping via from.send(...).
-//! On the return path a proxy actor is spawned on A for each remote
-//! actor - for B and C a one-hop proxy over their direct socket, for
-//! D a **double-hop** proxy whose wire target is B's own proxy for
-//! app_d. A captures the from pid of each pong_x as proxy_b,
-//! proxy_c, proxy_d and then sends a second round ping2 *through
-//! those proxy pids*, exercising real proxy dispatch (one-hop and
-//! two-hop). Once all three pong2_x replies arrive A closes the
-//! sockets, which cascades a clean shutdown across the diamond.
+//! Each remote node replies pong_x to its ping via from.send(...). On the
+//! return path a proxy actor is spawned on A for each remote actor - for B
+//! and C a one-hop proxy over their direct socket, for D a **double-hop**
+//! proxy whose wire target is B's own proxy for app_d. A captures the from
+//! pid of each pong_x as proxy_b, proxy_c, proxy_d and then sends a second
+//! round ping2 *through those proxy pids*, exercising real proxy dispatch
+//! (one-hop and two-hop).
+//!
+//! Double-hop link/exit propagation:
+//!
+//! Once the proxy round-trip completes, A runs one final scenario before
+//! tearing the diamond down. A spawns a linked helper actor X and hands it
+//! proxy_d. X uses that proxy to ask app_d to spawn a fresh actor Y
+//! (unlinked from app_d) on D, handing Y the reverse proxy back to X. Y
+//! sends X a y_ready. X captures Y's two-hop proxy on A and simply calls
+//! y_pid.link(). Because proxies opt into observe_links, this chains a
+//! wire-link across A→B, then again across B→D, all the way to Y on D --
+//! X's code stays remote-unaware. X then sends Y a crash command; Y
+//! exits "crash", and the exit propagates
+//!   Y → x_ref (D) → proxy_of_Y_on_B (B) → proxy_of_Y_on_A (A) → X
+//! X re-exits "crash", and A (linked to X) observes it. Only then does
+//! A close the sockets and shut down.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -102,7 +115,7 @@ const NodeA = struct {
     listeners_ready: u8 = 0,
     b_ready: bool = false,
     c_ready: bool = false,
-    phase: enum { waiting, bootstrap, verify, done } = .waiting,
+    phase: enum { waiting, bootstrap, verify, link_test, done } = .waiting,
     pong_count: u8 = 0,
     pong2_count: u8 = 0,
     receiver: tp.Receiver(*@This()),
@@ -269,6 +282,10 @@ const NodeA = struct {
             // ditto
         } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
             if (std.mem.eql(u8, reason, "normal")) return;
+            if (self.phase == .link_test and std.mem.eql(u8, reason, "crash")) {
+                say(self.io, "[a] link_test PASS: X propagated Y's exit \"crash\"\n", .{});
+                return self.finish("link_test complete");
+            }
             return tp.unexpected(m);
         } else {
             return tp.unexpected(m);
@@ -323,8 +340,26 @@ const NodeA = struct {
         self.pong2_count += 1;
         say(self.io, "[a] pong2_{s} arrived on saved proxy (pong2 {d}/3)\n", .{ label, self.pong2_count });
         if (self.pong2_count < 3) return;
+        try self.start_link_test();
+    }
+
+    fn start_link_test(self: *@This()) !void {
+        self.phase = .link_test;
+        say(self.io, "[a] running double-hop link/exit propagation test\n", .{});
+        // Spawn X (linked to us), give it a clone of the two-hop proxy for
+        // app_d. X will drive the whole scenario and re-exit "crash" when
+        // Y's exit reaches it through the wire-link chain.
+        const x_pid = try tp.spawn_link(self.allocator, LinkX.Args{
+            .allocator = self.allocator,
+            .io = self.io,
+            .proxy_d = self.proxy_d.?.clone(),
+        }, LinkX.start, "link_x");
+        x_pid.deinit();
+    }
+
+    fn finish(self: *@This(), how: []const u8) tp.result {
         self.phase = .done;
-        say(self.io, "[a] all proxy pongs received; shutting down\n", .{});
+        say(self.io, "[a] {s}; shutting down\n", .{how});
         // Close our own connections; peers will see peer_closed and exit,
         // which propagates down through B→D and C→D too.
         if (self.ab_conn) |p| p.send(.{ "exit", "shutdown" }) catch {};
@@ -337,6 +372,68 @@ const NodeA = struct {
         while (it.next()) |line| {
             if (line.len == 0) continue;
             say(self.io, "[{s}> ] {s}\n", .{ label, line });
+        }
+    }
+};
+
+const LinkX = struct {
+    allocator: Allocator,
+    io: std.Io,
+    proxy_d: tp.pid,
+    y_pid: ?tp.pid = null,
+    receiver: tp.Receiver(*@This()),
+
+    const Args = struct {
+        allocator: Allocator,
+        io: std.Io,
+        proxy_d: tp.pid,
+    };
+
+    fn start(args: Args) tp.result {
+        return init(args) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn init(args: Args) !void {
+        _ = tp.set_trap(true);
+        try args.proxy_d.send(.{"spawn_y"});
+        say(args.io, "[x] asked app_d to spawn Y via proxy_d\n", .{});
+        const self = try args.allocator.create(@This());
+        self.* = .{
+            .allocator = args.allocator,
+            .io = args.io,
+            .proxy_d = args.proxy_d,
+            .receiver = .init(receive_fn, deinit, self),
+        };
+        errdefer self.deinit();
+        tp.receive(&self.receiver);
+    }
+
+    fn deinit(self: *@This()) void {
+        if (self.y_pid) |*p| p.deinit();
+        self.proxy_d.deinit();
+        self.allocator.destroy(self);
+    }
+
+    fn receive_fn(self: *@This(), from: tp.pid_ref, m: tp.message) tp.result {
+        return self.receive(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
+        var reason: []const u8 = "";
+        if (try m.match(.{"y_ready"})) {
+            self.y_pid = from.clone();
+            say(self.io, "[x] Y is up; linking then telling Y to crash\n", .{});
+            // A plain link() through a proxy chains a wire-link all the
+            // way to Y on D.
+            try self.y_pid.?.link();
+            try self.y_pid.?.send(.{"crash_yourself"});
+        } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
+            // Y's crash propagated back through the wire-link chain and
+            // killed our local proxy_of_Y_on_A, which we're linked to.
+            say(self.io, "[x] observed Y exit \"{s}\"; re-exiting\n", .{reason});
+            return tp.exit(reason);
+        } else {
+            return tp.unexpected(m);
         }
     }
 };
@@ -718,6 +815,16 @@ const NodeD = struct {
         } else if (try m.match(.{ "ping2", tp.extract(&origin) })) {
             say(self.io, "[d] received PING2 (via proxy) from {s}; replying pong2_d\n", .{origin});
             try from.send(.{"pong2_d"});
+        } else if (try m.match(.{"spawn_y"})) {
+            // `from` is a fresh two-hop proxy_of_X_on_D pointing back to X
+            // on A via B. Hand it to Y so Y can reach X directly.
+            say(self.io, "[d] spawn_y request received; spawning Y unlinked\n", .{});
+            const y_pid = try tp.spawn(self.allocator, RemoteY.Args{
+                .allocator = self.allocator,
+                .io = self.io,
+                .x_ref = from.clone(),
+            }, RemoteY.start, "remote_y");
+            y_pid.deinit();
         } else if (try m.match(.{ "endpoint_exit", tp.extract(&reason) })) {
             // A remote connection went down; if both are gone, quit.
             var alive: u8 = 0;
@@ -733,5 +840,53 @@ const NodeD = struct {
         } else {
             return tp.unexpected(m);
         }
+    }
+};
+
+const RemoteY = struct {
+    allocator: Allocator,
+    io: std.Io,
+    x_ref: tp.pid,
+    receiver: tp.Receiver(*@This()),
+
+    const Args = struct {
+        allocator: Allocator,
+        io: std.Io,
+        x_ref: tp.pid,
+    };
+
+    fn start(args: Args) tp.result {
+        return init(args) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn init(args: Args) !void {
+        try args.x_ref.send(.{"y_ready"});
+        say(args.io, "[y] sent y_ready\n", .{});
+        const self = try args.allocator.create(@This());
+        self.* = .{
+            .allocator = args.allocator,
+            .io = args.io,
+            .x_ref = args.x_ref,
+            .receiver = .init(receive_fn, deinit, self),
+        };
+        errdefer self.deinit();
+        tp.receive(&self.receiver);
+    }
+
+    fn deinit(self: *@This()) void {
+        self.x_ref.deinit();
+        self.allocator.destroy(self);
+    }
+
+    fn receive_fn(self: *@This(), from: tp.pid_ref, m: tp.message) tp.result {
+        return self.receive(from, m) catch |e| return tp.exit_error(e, @errorReturnTrace());
+    }
+
+    fn receive(self: *@This(), _: tp.pid_ref, m: tp.message) !void {
+        if (try m.match(.{"crash_yourself"})) {
+            say(self.io, "[y] received crash_yourself; exiting \"crash\"\n", .{});
+            return tp.exit("crash");
+        }
+        return tp.unexpected(m);
     }
 };
