@@ -133,8 +133,16 @@ test "remote: unx endpoint round-trip via listen/connect" {
     var ctx = try thespian.context.init(allocator, .{});
     defer ctx.deinit();
 
-    var path_buf: [128]u8 = undefined;
-    const path_slice = try std.fmt.bufPrintZ(&path_buf, "thespian_endpoint_unx_test_{d}", .{std.os.linux.getpid()});
+    const pid: u32 = switch (builtin.os.tag) {
+        .windows => std.os.windows.GetCurrentProcessId(),
+        .linux => @intCast(std.os.linux.getpid()),
+        else => @intCast(std.c.getpid()),
+    };
+    var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const path_slice = if (builtin.os.tag == .linux)
+        try std.fmt.bufPrintZ(&path_buf, "thespian_endpoint_unx_test_{d}", .{pid})
+    else
+        try std.fmt.bufPrintZ(&path_buf, "/tmp/thespian_endpoint_unx_test_{d}.sock", .{pid});
     const mode: thespian.unx_mode = if (builtin.os.tag == .linux) .abstract else .file;
 
     var success = false;
