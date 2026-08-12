@@ -139,10 +139,18 @@ test "remote: unx endpoint round-trip via listen/connect" {
         else => @intCast(std.c.getpid()),
     };
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const path_slice = if (builtin.os.tag == .linux)
-        try std.fmt.bufPrintZ(&path_buf, "thespian_endpoint_unx_test_{d}", .{pid})
-    else
-        try std.fmt.bufPrintZ(&path_buf, "/tmp/thespian_endpoint_unx_test_{d}.sock", .{pid});
+    const path_slice = switch (builtin.os.tag) {
+        .linux => try std.fmt.bufPrintZ(&path_buf, "thespian_endpoint_unx_test_{d}", .{pid}),
+        .windows => blk: {
+            const tmp = std.testing.environ.getAlloc(allocator, "TEMP") catch |e| switch (e) {
+                error.EnvironmentVariableMissing => try allocator.dupe(u8, "C:\\Windows\\Temp"),
+                else => return e,
+            };
+            defer allocator.free(tmp);
+            break :blk try std.fmt.bufPrintZ(&path_buf, "{s}\\thespian_endpoint_unx_test_{d}.sock", .{ tmp, pid });
+        },
+        else => try std.fmt.bufPrintZ(&path_buf, "/tmp/thespian_endpoint_unx_test_{d}.sock", .{pid}),
+    };
     const mode: thespian.unx_mode = if (builtin.os.tag == .linux) .abstract else .file;
 
     var success = false;
