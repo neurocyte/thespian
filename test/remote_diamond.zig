@@ -61,7 +61,8 @@ const piid = tp.piid;
 const sock_mode: tp.unx_mode = if (builtin.os.tag == .linux) .abstract else .file;
 
 pub fn main(init: std.process.Init) !void {
-    var args = std.process.Args.Iterator.init(init.minimal.args);
+    var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
+    defer args.deinit();
     _ = args.next(); // exe
     const mode = args.next() orelse return try NodeA.run(init);
 

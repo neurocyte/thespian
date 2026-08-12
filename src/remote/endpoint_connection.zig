@@ -1,15 +1,26 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 
 const tag = "EPCON";
+
+extern "ws2_32" fn closesocket(s: usize) callconv(.c) c_int;
+
+fn close_socket_fd(fd: i32) void {
+    if (builtin.os.tag == .windows) {
+        _ = closesocket(@as(usize, @intCast(fd)));
+    } else {
+        _ = std.c.close(fd);
+    }
+}
 
 /// Spawns an unlinked connection endpoint actor around `fd`. Unlinked
 /// so a connection's exit does not kill the listener/connector that
 /// spawned it; the owning actor is expected to manage the connection's
 /// lifecycle via `.send(.{"exit", reason})` or transport events.
 pub fn start(allocator: std.mem.Allocator, fd: i32) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
-    errdefer _ = std.c.close(fd);
+    errdefer close_socket_fd(fd);
     return tp.spawn(
         allocator,
         Connection.Args{

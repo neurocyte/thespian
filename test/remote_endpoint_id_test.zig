@@ -83,7 +83,7 @@ test "remote: inbound proxy table, from-substitution, outbound ID table, and sen
     const allocator = std.testing.allocator;
 
     var initial_env: ?thespian.env = null;
-    if (std.testing.environ.getPosix("TRACE") != null) {
+    if (std.testing.environ.containsConstant("TRACE")) {
         const f = try std.Io.Dir.cwd().createFile(std.testing.io, "remote_endpoint_id_trace.json", .{});
         trace_file = f;
         trace_file_writer = f.writer(std.testing.io, &trace_buf);

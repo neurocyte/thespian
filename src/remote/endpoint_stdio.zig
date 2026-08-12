@@ -1,8 +1,12 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const tp = @import("thespian");
 const cbor = @import("cbor");
 
-pub fn start(io: std.Io, allocator: std.mem.Allocator) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+pub const StartError = error{ OutOfMemory, ThespianSpawnFailed, EndpointStdioUnsupported };
+
+pub fn start(io: std.Io, allocator: std.mem.Allocator) StartError!tp.pid {
+    if (builtin.os.tag == .windows) return error.EndpointStdioUnsupported;
     return tp.spawn_link(
         allocator,
         Process.Args{

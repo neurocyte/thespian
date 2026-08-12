@@ -200,7 +200,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
 
     var initial_env: ?tp.env = null;
-    if (init.minimal.environ.getPosix("TRACE") != null) {
+    if (init.minimal.environ.containsConstant("TRACE")) {
         const f = try std.Io.Dir.cwd().createFile(init.io, "remote_child_endpoint_trace.json", .{});
         trace_file = f;
         trace_file_writer = f.writer(init.io, &trace_buf);
