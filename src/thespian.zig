@@ -587,6 +587,16 @@ pub fn set_trap(on: bool) bool {
     return c.thespian_set_trap(on);
 }
 
+pub fn get_observe_links() bool {
+    return c.thespian_get_observe_links();
+}
+
+/// Enable/disable observation of `.{"link"}` messages AFTER the sender has
+/// been linked.
+pub fn set_observe_links(on: bool) bool {
+    return c.thespian_set_observe_links(on);
+}
+
 pub fn spawn_link(
     a: std.mem.Allocator,
     data: anytype,
