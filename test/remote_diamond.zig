@@ -112,6 +112,7 @@ const NodeA = struct {
     proxy_b: ?tp.pid = null,
     proxy_c: ?tp.pid = null,
     proxy_d: ?tp.pid = null,
+    link_x: ?tp.pid = null,
     listeners_ready: u8 = 0,
     b_ready: bool = false,
     c_ready: bool = false,
@@ -211,6 +212,7 @@ const NodeA = struct {
     }
 
     fn deinit(self: *@This()) void {
+        if (self.link_x) |*p| p.deinit();
         if (self.proxy_b) |*p| p.deinit();
         if (self.proxy_c) |*p| p.deinit();
         if (self.proxy_d) |*p| p.deinit();
@@ -282,7 +284,9 @@ const NodeA = struct {
             // ditto
         } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
             if (std.mem.eql(u8, reason, "normal")) return;
-            if (self.phase == .link_test and std.mem.eql(u8, reason, "crash")) {
+            if (self.phase == .link_test and std.mem.eql(u8, reason, "crash") and
+                self.link_x != null and from.instance_id() == self.link_x.?.instance_id())
+            {
                 say(self.io, "[a] link_test PASS: X propagated Y's exit \"crash\"\n", .{});
                 return self.finish("link_test complete");
             }
@@ -349,12 +353,11 @@ const NodeA = struct {
         // Spawn X (linked to us), give it a clone of the two-hop proxy for
         // app_d. X will drive the whole scenario and re-exit "crash" when
         // Y's exit reaches it through the wire-link chain.
-        const x_pid = try tp.spawn_link(self.allocator, LinkX.Args{
+        self.link_x = try tp.spawn_link(self.allocator, LinkX.Args{
             .allocator = self.allocator,
             .io = self.io,
             .proxy_d = self.proxy_d.?.clone(),
         }, LinkX.start, "link_x");
-        x_pid.deinit();
     }
 
     fn finish(self: *@This(), how: []const u8) tp.result {
@@ -565,8 +568,7 @@ const NodeB = struct {
                 } else if (line.len > 0) {
                     say(self.io, "[d> ] {s}\n", .{line});
                 }
-                _ = self.d_stdout.orderedRemove(0);
-                for (0..nl) |_| _ = self.d_stdout.orderedRemove(0);
+                try self.d_stdout.replaceRange(self.allocator, 0, nl + 1, &.{});
             }
         } else if (try m.match(.{ d_tag, "stderr", tp.extract(&bytes) })) {
             say(self.io, "[d/err] {s}\n", .{bytes});
