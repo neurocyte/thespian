@@ -11,12 +11,14 @@ const lpiid = protocol.lpiid;
 const piid = protocol.piid;
 
 pub fn start(io: std.Io, allocator: std.mem.Allocator, argv: cbor.Raw) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+    const argv_dup = try allocator.dupe(u8, argv.bytes);
+    errdefer allocator.free(argv_dup);
     return tp.spawn_link(
         allocator,
         Process.Args{
             .io = io,
             .allocator = allocator,
-            .argv = .{ .bytes = try allocator.dupe(u8, argv.bytes) },
+            .argv = .{ .bytes = argv_dup },
         },
         Process.start,
         @typeName(@This()),
@@ -46,13 +48,16 @@ const Process = struct {
     }
 
     fn init(args: Args) !void {
-        const proc = try tp.subprocess.init(args.io, args.allocator, tp.message{ .buf = args.argv.bytes }, tag, .pipe);
+        var proc = try tp.subprocess.init(args.io, args.allocator, tp.message{ .buf = args.argv.bytes }, tag, .pipe);
+        var proc_owned = true;
+        errdefer if (proc_owned) proc.deinit();
         const self = try args.allocator.create(@This());
         self.* = .{
             .proc = proc,
             .endpoint = .init(args.allocator),
             .receiver = .init(receive, deinit, self),
         };
+        proc_owned = false;
         errdefer self.deinit();
 
         _ = tp.set_trap(true);

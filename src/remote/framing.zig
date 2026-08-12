@@ -25,12 +25,12 @@ pub const Accumulator = struct {
         self.buf.deinit(allocator);
     }
 
-    pub fn feed(self: *@This(), allocator: std.mem.Allocator, bytes: []const u8) ?[]const u8 {
+    pub fn feed(self: *@This(), allocator: std.mem.Allocator, bytes: []const u8) error{OutOfMemory}!?[]const u8 {
         var iter: []const u8 = self.buf.items;
         var result: []const u8 = undefined;
         if (cbor.matchString(&iter, &result) catch false)
             self.buf.replaceRangeAssumeCapacity(0, @intFromPtr(iter.ptr) - @intFromPtr(self.buf.items.ptr), &.{});
-        self.buf.appendSlice(allocator, bytes) catch return null;
+        try self.buf.appendSlice(allocator, bytes);
         iter = self.buf.items;
         return if (cbor.matchString(&iter, &result) catch false) result else null;
     }

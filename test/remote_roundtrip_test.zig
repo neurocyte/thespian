@@ -68,7 +68,7 @@ const Parent = struct {
         var exit_code: i64 = 0;
 
         if (try m.match(.{ tag, "stdout", extract(&bytes) })) {
-            if (self.accumulator.feed(self.allocator, bytes)) |frame| {
+            if (try self.accumulator.feed(self.allocator, bytes)) |frame| {
                 try std.testing.expect(try cbor.match(frame, .{"pong"}));
                 self.pong_received = true;
             }

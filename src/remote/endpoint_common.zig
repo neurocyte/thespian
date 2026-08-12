@@ -55,10 +55,10 @@ pub fn create(EndpointT: type) type {
         }
 
         pub fn feed(self: *@This(), bytes: []const u8) !void {
-            var maybe_frame = self.accumulator.feed(self.allocator, bytes);
+            var maybe_frame = try self.accumulator.feed(self.allocator, bytes);
             while (maybe_frame) |frame| {
                 try self.dispatch_inbound(.{ .bytes = frame });
-                maybe_frame = self.accumulator.feed(self.allocator, &.{});
+                maybe_frame = try self.accumulator.feed(self.allocator, &.{});
             }
         }
 
@@ -69,6 +69,7 @@ pub fn create(EndpointT: type) type {
                 .endpoint = tp.self_pid().clone(),
                 .remote_id = remote_id,
             }, proxy.start, "proxy");
+            errdefer p.deinit();
             try self.remote_proxies.put(self.allocator, remote_id, p);
             return self.remote_proxies.getPtr(remote_id).?.ref();
         }

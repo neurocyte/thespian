@@ -9,6 +9,7 @@ const tag = "EPCON";
 /// spawned it; the owning actor is expected to manage the connection's
 /// lifecycle via `.send(.{"exit", reason})` or transport events.
 pub fn start(allocator: std.mem.Allocator, fd: i32) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+    errdefer _ = std.c.close(fd);
     return tp.spawn(
         allocator,
         Connection.Args{
@@ -36,12 +37,15 @@ const Connection = struct {
 
     fn init(args: Args) !void {
         const sock = try tp.socket.init(tag, args.fd);
+        var sock_owned = true;
+        errdefer if (sock_owned) sock.deinit();
         const self = try args.allocator.create(@This());
         self.* = .{
             .sock = sock,
             .endpoint = .init(args.allocator),
             .receiver = .init(receive, deinit, self),
         };
+        sock_owned = false;
         errdefer self.deinit();
 
         _ = tp.set_trap(true);

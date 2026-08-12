@@ -415,7 +415,8 @@ struct instance : std::enable_shared_from_this<instance> {
     ZoneScopedN("actor");
 #endif
     if (is_link_msg(msg)) {
-      do_trace(channel::execute, "run");
+      if (!observe_links_)
+        do_trace(channel::execute, "run");
       do_trace_to(channel::link, "link", handle_ref(from));
       if (observe_links_) {
         links_.emplace_front(from);

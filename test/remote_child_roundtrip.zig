@@ -13,7 +13,7 @@ pub fn main(init: std.process.Init) !void {
     const frame = while (true) {
         const n = try stdin_r.interface.readSliceShort(&read_buf);
         if (n == 0) return error.UnexpectedEof;
-        if (acc.feed(init.gpa, read_buf[0..n])) |f| break f;
+        if (try acc.feed(init.gpa, read_buf[0..n])) |f| break f;
     };
 
     if (!try cbor.match(frame, .{"ping"})) return error.UnexpectedMessage;

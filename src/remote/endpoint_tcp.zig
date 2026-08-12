@@ -13,6 +13,7 @@ pub fn listen(
     port: u16,
     owner: tp.pid,
 ) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+    errdefer owner.deinit();
     return tp.spawn_link(
         allocator,
         Listener.Args{
@@ -32,6 +33,7 @@ pub fn connect(
     port: u16,
     owner: tp.pid,
 ) error{ OutOfMemory, ThespianSpawnFailed }!tp.pid {
+    errdefer owner.deinit();
     return tp.spawn_link(
         allocator,
         Connector.Args{
@@ -65,6 +67,8 @@ const Listener = struct {
 
     fn init(args: Args) !void {
         const acceptor = try tp.tcp_acceptor.init(acceptor_tag);
+        var acceptor_owned = true;
+        errdefer if (acceptor_owned) acceptor.deinit();
         const self = try args.allocator.create(@This());
         self.* = .{
             .allocator = args.allocator,
@@ -72,6 +76,7 @@ const Listener = struct {
             .owner = args.owner,
             .receiver = .init(receive, deinit, self),
         };
+        acceptor_owned = false;
         errdefer self.deinit();
 
         _ = tp.set_trap(true);
@@ -134,6 +139,8 @@ const Connector = struct {
 
     fn init(args: Args) !void {
         const connector = try tp.tcp_connector.init(connector_tag);
+        var connector_owned = true;
+        errdefer if (connector_owned) connector.deinit();
         const self = try args.allocator.create(@This());
         self.* = .{
             .allocator = args.allocator,
@@ -141,6 +148,7 @@ const Connector = struct {
             .owner = args.owner,
             .receiver = .init(receive, deinit, self),
         };
+        connector_owned = false;
         errdefer self.deinit();
 
         _ = tp.set_trap(true);

@@ -394,6 +394,8 @@ const LinkX = struct {
     }
 
     fn init(args: Args) !void {
+        var proxy_d_owned = true;
+        errdefer if (proxy_d_owned) args.proxy_d.deinit();
         _ = tp.set_trap(true);
         try args.proxy_d.send(.{"spawn_y"});
         say(args.io, "[x] asked app_d to spawn Y via proxy_d\n", .{});
@@ -404,6 +406,7 @@ const LinkX = struct {
             .proxy_d = args.proxy_d,
             .receiver = .init(receive_fn, deinit, self),
         };
+        proxy_d_owned = false;
         errdefer self.deinit();
         tp.receive(&self.receiver);
     }
@@ -860,6 +863,8 @@ const RemoteY = struct {
     }
 
     fn init(args: Args) !void {
+        var x_ref_owned = true;
+        errdefer if (x_ref_owned) args.x_ref.deinit();
         try args.x_ref.send(.{"y_ready"});
         say(args.io, "[y] sent y_ready\n", .{});
         const self = try args.allocator.create(@This());
@@ -869,6 +874,7 @@ const RemoteY = struct {
             .x_ref = args.x_ref,
             .receiver = .init(receive_fn, deinit, self),
         };
+        x_ref_owned = false;
         errdefer self.deinit();
         tp.receive(&self.receiver);
     }

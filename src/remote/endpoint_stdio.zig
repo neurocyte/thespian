@@ -32,6 +32,8 @@ const Process = struct {
 
     fn init(args: Args) !void {
         const fd_stdin = try tp.file_descriptor.init("stdin", 0);
+        var fd_owned = true;
+        errdefer if (fd_owned) fd_stdin.deinit();
         const self = try args.allocator.create(@This());
         self.* = .{
             .io = args.io,
@@ -39,6 +41,7 @@ const Process = struct {
             .endpoint = .init(args.allocator),
             .receiver = .init(receive, deinit, self),
         };
+        fd_owned = false;
         errdefer self.deinit();
 
         _ = tp.set_trap(true);
