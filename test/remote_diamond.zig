@@ -60,6 +60,29 @@ const piid = tp.piid;
 
 const sock_mode: tp.unx_mode = if (builtin.os.tag == .linux) .abstract else .file;
 
+fn get_process_id() u32 {
+    return switch (builtin.os.tag) {
+        .windows => std.os.windows.GetCurrentProcessId(),
+        .linux => @intCast(std.os.linux.getpid()),
+        else => @intCast(std.c.getpid()),
+    };
+}
+
+fn make_sock_path(env: std.process.Environ, allocator: Allocator, tag_: []const u8, pid_str: []const u8) ![:0]const u8 {
+    if (builtin.os.tag == .linux) {
+        return std.fmt.allocPrintSentinel(allocator, "diamond_{s}_{s}", .{ tag_, pid_str }, 0);
+    }
+    if (builtin.os.tag == .windows) {
+        const tmp = env.getAlloc(allocator, "TEMP") catch |e| switch (e) {
+            error.EnvironmentVariableMissing => try allocator.dupe(u8, "C:\\Windows\\Temp"),
+            else => return e,
+        };
+        defer allocator.free(tmp);
+        return std.fmt.allocPrintSentinel(allocator, "{s}\\diamond_{s}_{s}.sock", .{ tmp, tag_, pid_str }, 0);
+    }
+    return std.fmt.allocPrintSentinel(allocator, "/tmp/diamond_{s}_{s}.sock", .{ tag_, pid_str }, 0);
+}
+
 pub fn main(init: std.process.Init) !void {
     var args = try std.process.Args.Iterator.initAllocator(init.minimal.args, init.gpa);
     defer args.deinit();
@@ -138,20 +161,20 @@ const NodeA = struct {
         var ctx = try tp.context.init(pinit.gpa, .{});
         defer ctx.deinit();
 
-        const pid_str = try std.fmt.allocPrint(pinit.gpa, "{d}", .{std.os.linux.getpid()});
+        const pid_str = try std.fmt.allocPrint(pinit.gpa, "{d}", .{get_process_id()});
         defer pinit.gpa.free(pid_str);
-        const path_ab = try std.fmt.allocPrintSentinel(pinit.gpa, "diamond_ab_{s}", .{pid_str}, 0);
+
+        const path_ab = try make_sock_path(pinit.minimal.environ, pinit.gpa, "ab", pid_str);
         defer pinit.gpa.free(path_ab);
-        const path_ac = try std.fmt.allocPrintSentinel(pinit.gpa, "diamond_ac_{s}", .{pid_str}, 0);
+        const path_ac = try make_sock_path(pinit.minimal.environ, pinit.gpa, "ac", pid_str);
         defer pinit.gpa.free(path_ac);
-        const path_d = try std.fmt.allocPrintSentinel(pinit.gpa, "diamond_d_{s}", .{pid_str}, 0);
+        const path_d = try make_sock_path(pinit.minimal.environ, pinit.gpa, "d", pid_str);
         defer pinit.gpa.free(path_d);
 
         say(pinit.io, "[a] paths: ab={s} ac={s} d={s}\n", .{ path_ab, path_ac, path_d });
 
-        // linux-only: /proc/self/exe is an absolute symlink to the running binary.
         var exe_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const exe_len = try std.Io.Dir.readLinkAbsolute(pinit.io, "/proc/self/exe", &exe_buf);
+        const exe_len = try std.process.executablePath(pinit.io, &exe_buf);
         const exe = exe_buf[0..exe_len];
 
         var exit_ok = false;
