@@ -24,6 +24,8 @@ auto receive_sync(sync_receiver) -> void;
 
 auto trap() -> bool;
 auto trap(bool) -> bool;
+auto observe_links() -> bool;
+auto observe_links(bool) -> bool;
 auto link(const handle &) -> void;
 
 auto self() -> handle;

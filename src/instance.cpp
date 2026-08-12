@@ -417,11 +417,17 @@ struct instance : std::enable_shared_from_this<instance> {
     if (is_link_msg(msg)) {
       do_trace(channel::execute, "run");
       do_trace_to(channel::link, "link", handle_ref(from));
-      links_.emplace_front(move(from));
+      if (observe_links_) {
+        links_.emplace_front(from);
+      } else {
+        links_.emplace_front(move(from));
+      }
       if (debug::isenabled(ctx))
         do_trace_links(channel::link);
-      do_trace(channel::execute, "sleep");
-      return;
+      if (!observe_links_) {
+        do_trace(channel::execute, "sleep");
+        return;
+      }
     }
     if (in_shutdown)
       return;
@@ -508,6 +514,12 @@ struct instance : std::enable_shared_from_this<instance> {
     return trap;
   }
 
+  auto observe_links() const -> bool { return observe_links_; }
+  auto observe_links(bool obs) -> bool {
+    swap(obs, observe_links_);
+    return obs;
+  }
+
   auto link(const handle &h) -> result {
     auto ret = h.send_raw(link_msg);
     if (not ret)
@@ -532,6 +544,7 @@ struct instance : std::enable_shared_from_this<instance> {
   handle self_ref_;
   pair<ref, buffer> mailbox_;
   bool trap_exit_{false};
+  bool observe_links_{false};
   bool in_shutdown{false};
   forward_list<handle> links_;
   env_t env_;
@@ -668,6 +681,8 @@ void receive(receiver r) { private_call().receive(move(r)); }
 void receive_sync(sync_receiver r) { private_call().receive_sync(move(r)); }
 auto trap() -> bool { return private_call().trap(); }
 auto trap(bool t) -> bool { return private_call().trap(t); }
+auto observe_links() -> bool { return private_call().observe_links(); }
+auto observe_links(bool o) -> bool { return private_call().observe_links(o); }
 void link(const handle &h) { private_call().link(h); }
 
 auto on_trace(trace_handler h) -> trace_handler {
