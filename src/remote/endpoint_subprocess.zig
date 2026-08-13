@@ -48,7 +48,7 @@ const Process = struct {
     }
 
     fn init(args: Args) !void {
-        var proc = try tp.subprocess.init(args.io, args.allocator, tp.message{ .buf = args.argv.bytes }, tag, .pipe);
+        var proc = try tp.subprocess.init_overlapped(args.io, args.allocator, tp.message{ .buf = args.argv.bytes }, tag, .pipe);
         var proc_owned = true;
         errdefer if (proc_owned) proc.deinit();
         const self = try args.allocator.create(@This());
