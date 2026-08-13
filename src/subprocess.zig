@@ -19,6 +19,10 @@ pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u
     };
 }
 
+pub fn init_overlapped(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
+    return init(io, a, argv, tag, stdin_behavior);
+}
+
 pub fn deinit(self: *Self) void {
     if (self.pid) |pid| {
         pid.deinit();

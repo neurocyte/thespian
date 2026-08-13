@@ -11,7 +11,16 @@ pub const StdIo = std.process.SpawnOptions.StdIo;
 
 pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
     return .{
-        .pid = try Proc.create(io, a, argv, tag, stdin_behavior),
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, false),
+        .stdin_behavior = stdin_behavior,
+    };
+}
+
+/// Init stdio pipes with FILE_FLAG_OVERLAPPED on both ends. Only valid for
+/// stdio child applications that expect it. stderr is left alone.
+pub fn init_overlapped(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
+    return .{
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, true),
         .stdin_behavior = stdin_behavior,
     };
 }
@@ -107,7 +116,7 @@ const Proc = struct {
 
     const Receiver = tp.Receiver(*Proc);
 
-    fn create(_: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !tp.pid {
+    fn create(_: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo, overlapped_child_pipes: bool) !tp.pid {
         const self: *Proc = try a.create(Proc);
 
         var args = std.heap.ArenaAllocator.init(a);
@@ -128,6 +137,7 @@ const Proc = struct {
         child.stdin_behavior = stdin_behavior;
         child.stdout_behavior = .pipe;
         child.stderr_behavior = .pipe;
+        child.overlapped_child_pipes = overlapped_child_pipes;
 
         self.* = .{
             .a = a,
@@ -268,6 +278,7 @@ const Child = struct {
     const INFINITE: windows.DWORD = 0xFFFFFFFF;
     const HANDLE_FLAG_INHERIT: windows.DWORD = 0x00000001;
     const PIPE_ACCESS_INBOUND: windows.DWORD = 0x00000001;
+    const PIPE_ACCESS_OUTBOUND: windows.DWORD = 0x00000002;
     const FILE_FLAG_OVERLAPPED: windows.DWORD = 0x40000000;
     const FILE_FLAG_BACKUP_SEMANTICS: windows.DWORD = 0x02000000;
     const PIPE_TYPE_BYTE: windows.DWORD = 0x00000000;
@@ -404,6 +415,7 @@ const Child = struct {
     stdin_behavior: StdIo,
     stdout_behavior: StdIo,
     stderr_behavior: StdIo,
+    overlapped_child_pipes: bool = false,
     cwd: ?[]const u8,
     cwd_dir: ?std.Io.Dir = null,
 
@@ -468,7 +480,11 @@ const Child = struct {
         var g_hChildStd_IN_Wr: ?windows.HANDLE = null;
         switch (self.stdin_behavior) {
             .pipe => {
-                try makePipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
+                if (self.overlapped_child_pipes) {
+                    try makeAsyncPipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
+                } else {
+                    try makePipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
+                }
             },
             .ignore => {
                 g_hChildStd_IN_Rd = nul_handle;
@@ -491,7 +507,7 @@ const Child = struct {
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
             .pipe => {
-                try makeAsyncPipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
+                try makeAsyncPipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr, self.overlapped_child_pipes);
             },
             .ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
@@ -514,7 +530,7 @@ const Child = struct {
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
             .pipe => {
-                try makeAsyncPipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
+                try makeAsyncPipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr, false);
             },
             .ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
@@ -712,7 +728,7 @@ const Child = struct {
 
     var pipe_name_counter = std.atomic.Value(u32).init(1);
 
-    fn makeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *windows.SECURITY_ATTRIBUTES) !void {
+    fn makeAsyncPipe(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *windows.SECURITY_ATTRIBUTES, overlapped_write: bool) !void {
         var tmp_bufw: [128]u16 = undefined;
 
         const pipe_path = blk: {
@@ -744,6 +760,11 @@ const Child = struct {
         }
         errdefer windows.CloseHandle(read_handle);
 
+        const write_flags: windows.DWORD = if (overlapped_write)
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED
+        else
+            FILE_ATTRIBUTE_NORMAL;
+
         var sattr_copy = sattr.*;
         const write_handle = CreateFileW(
             pipe_path.ptr,
@@ -751,7 +772,7 @@ const Child = struct {
             0,
             &sattr_copy,
             OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
+            write_flags,
             null,
         );
         if (write_handle == windows.INVALID_HANDLE_VALUE) {
@@ -762,6 +783,65 @@ const Child = struct {
         errdefer windows.CloseHandle(write_handle);
 
         if (SetHandleInformation(read_handle, HANDLE_FLAG_INHERIT, 0) == .FALSE) {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
+
+        rd.* = read_handle;
+        wr.* = write_handle;
+    }
+
+    fn makeAsyncPipeIn(rd: *?windows.HANDLE, wr: *?windows.HANDLE, sattr: *windows.SECURITY_ATTRIBUTES) !void {
+        var tmp_bufw: [128]u16 = undefined;
+
+        const pipe_path = blk: {
+            var tmp_buf: [128]u8 = undefined;
+            const pipe_path = std.fmt.bufPrintZ(
+                &tmp_buf,
+                "\\\\.\\pipe\\zig-childprocess-{d}-{d}",
+                .{ windows.GetCurrentProcessId(), pipe_name_counter.fetchAdd(1, .monotonic) },
+            ) catch unreachable;
+            const len = std.unicode.wtf8ToWtf16Le(&tmp_bufw, pipe_path) catch unreachable;
+            tmp_bufw[len] = 0;
+            break :blk tmp_bufw[0..len :0];
+        };
+
+        const write_handle = CreateNamedPipeW(
+            pipe_path.ptr,
+            PIPE_ACCESS_OUTBOUND | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE,
+            1,
+            4096,
+            4096,
+            0,
+            sattr,
+        );
+        if (write_handle == windows.INVALID_HANDLE_VALUE) {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
+        errdefer windows.CloseHandle(write_handle);
+
+        var sattr_copy = sattr.*;
+        const read_handle = CreateFileW(
+            pipe_path.ptr,
+            GENERIC_READ,
+            0,
+            &sattr_copy,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
+            null,
+        );
+        if (read_handle == windows.INVALID_HANDLE_VALUE) {
+            switch (windows.GetLastError()) {
+                else => |err| return windows.unexpectedError(err),
+            }
+        }
+        errdefer windows.CloseHandle(read_handle);
+
+        if (SetHandleInformation(write_handle, HANDLE_FLAG_INHERIT, 0) == .FALSE) {
             switch (windows.GetLastError()) {
                 else => |err| return windows.unexpectedError(err),
             }
