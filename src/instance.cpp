@@ -705,23 +705,31 @@ struct signal_impl {
       owner_.env_.trace(array("signal", "set", m, signum));
 
     signal_.fires_on(signum);
-    signal_.on_fired([this, m(move(m)), lifelock{owner_.lifetime_}](
-                         const error_code &error, int signum) {
-      if (is_trace_enabled())
-        owner_.env_.trace(array("signal", "fired", m, signum, error.value(),
-                                error.message()));
+    signal_.on_fired([lifelock{owner_.lifetime_},
+                      dtor_cancelled{dtor_cancelled_},
+                      m(move(m))](const error_code &error, int signum) {
+      if (!lifelock)
+        return;
+      if (lifelock->env_.enabled(channel::signal))
+        lifelock->env_.trace(array("signal", "fired", m, signum, error.value(),
+                                   error.message()));
       if (!error)
-        auto _ = owner_.send_raw(m);
-      else
-        auto _ = owner_.send_raw(
+        auto _ = lifelock->send_raw(m);
+      else if (!*dtor_cancelled)
+        auto _ = lifelock->send_raw(
             exit_message("signal_error", error.value(), error.message()));
     });
   }
-  ~signal_impl() { cancel(); }
+  ~signal_impl() {
+    *dtor_cancelled_ = true;
+    cancel();
+  }
   void cancel() { signal_.cancel(); }
 
   instance &owner_;
   executor::signal signal_;
+  // distinguish dtor cancellation from an explicit user cancel() without capturing `this`
+  shared_ptr<bool> dtor_cancelled_{make_shared<bool>(false)};
 };
 void signal::cancel() {
   if (ref)
