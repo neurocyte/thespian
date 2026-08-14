@@ -728,7 +728,8 @@ struct signal_impl {
 
   instance &owner_;
   executor::signal signal_;
-  // distinguish dtor cancellation from an explicit user cancel() without capturing `this`
+  // distinguish dtor cancellation from an explicit user cancel() without
+  // capturing `this`
   shared_ptr<bool> dtor_cancelled_{make_shared<bool>(false)};
 };
 void signal::cancel() {
@@ -743,19 +744,21 @@ auto create_signal(int signum, buffer m) -> signal {
 void cancel_signal(signal_impl *p) { p->cancel(); }
 void destroy_signal(signal_impl *p) { delete p; }
 
-struct metronome_impl {
-  metronome_impl(const metronome_impl &) = delete;
-  metronome_impl(metronome_impl &&) = delete;
-  auto operator=(const metronome_impl &) -> metronome_impl & = delete;
-  auto operator=(metronome_impl &&) -> metronome_impl & = delete;
+namespace {
 
-  explicit metronome_impl(microseconds us)
+struct metronome_state : enable_shared_from_this<metronome_state> {
+  metronome_state(const metronome_state &) = delete;
+  metronome_state(metronome_state &&) = delete;
+  auto operator=(const metronome_state &) -> metronome_state & = delete;
+  auto operator=(metronome_state &&) -> metronome_state & = delete;
+
+  explicit metronome_state(microseconds us)
       : owner_(private_call()), strand_(owner_.get_strand()), us_(us),
         timer_(strand_), is_trace_enabled_{trace_enabled(channel::metronome)},
-        env_{private_call().env_} {}
-  ~metronome_impl() { stop(); }
+        env_{owner_.env_} {}
+  ~metronome_state() = default;
 
-  void tick(const error_code &error) {
+  void tick(const shared_ptr<instance> &lifelock, const error_code &error) {
     if (error)
       return; // aborted
     if (not running_)
@@ -763,33 +766,34 @@ struct metronome_impl {
     last_tick_ = last_tick_ + us_;
     if (is_trace_enabled_)
       env_.trace(array("metronome", "tick", counter, us_.count()));
-    result ret;
-    if (!error)
-      ret = owner_.send("tick", counter);
-    else
-      ret = owner_.send_raw(
-          exit_message("metronome_error", error.message(), error.value()));
+    auto ret = lifelock->send("tick", counter);
     counter++;
     if (ret)
-      schedule_tick();
+      schedule_tick(lifelock);
     else
       stop();
   }
 
-  void schedule_tick() {
+  void schedule_tick(const shared_ptr<instance> &lifelock) {
     timer_.expires_at(last_tick_ + us_);
-    timer_.on_expired([this, lifelock{owner_.lifetime_}](
-                          const error_code &error) { this->tick(error); });
+    timer_.on_expired(
+        [weak{weak_from_this()}, lifelock](const error_code &error) {
+          if (auto self = weak.lock())
+            self->tick(lifelock, error);
+        });
   }
 
   void start() {
     if (running_)
       return;
+    auto lifelock = owner_.lifetime_;
+    if (!lifelock)
+      return; // owning instance is already exiting
     running_ = true;
     last_tick_ = clk::now();
     if (is_trace_enabled_)
       env_.trace(array("metronome", "start", us_.count()));
-    schedule_tick();
+    schedule_tick(lifelock);
   }
 
   void stop() {
@@ -802,10 +806,27 @@ struct metronome_impl {
   microseconds us_;
   executor::timer timer_;
   system_clock::time_point last_tick_;
-  bool running_{false};
+  atomic<bool> running_{false};
   bool is_trace_enabled_{false};
   const env_t &env_;
   size_t counter{0};
+};
+} // namespace
+
+struct metronome_impl {
+  metronome_impl(const metronome_impl &) = delete;
+  metronome_impl(metronome_impl &&) = delete;
+  auto operator=(const metronome_impl &) -> metronome_impl & = delete;
+  auto operator=(metronome_impl &&) -> metronome_impl & = delete;
+
+  explicit metronome_impl(microseconds us)
+      : state_{make_shared<metronome_state>(us)} {}
+  ~metronome_impl() { state_->stop(); }
+
+  void start() { state_->start(); }
+  void stop() { state_->stop(); }
+
+  shared_ptr<metronome_state> state_;
 };
 void metronome::start() { ref->start(); }
 void metronome::stop() { ref->stop(); }
