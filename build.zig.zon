@@ -10,8 +10,8 @@
             .hash = "cbor-1.3.0-RcQE_D2JAQDUV27vpBd-0BNnETSKTHX3Y9s2_0Ja4hOe",
         },
         .asio = .{
-            .url = "git+https://github.com/neurocyte/asio#824070c9385bf98d9de087af6c7992d7039e2836",
-            .hash = "asio-1.30.2-tLhDdxSC4QC8WGxqT0vKX1qp6y9UZyyC4yeAin4Krvmy",
+            .url = "git+https://github.com/neurocyte/asio?ref=zig-pkg#0df2b85f179ea0b9e7f15574cbd4938d03b9b7bd",
+            .hash = "asio-1.30.2-tLhDdyqD4QBL_yxBimcG-KiLjuV_4AJEMJTZdOTqoEIW",
         },
         .zig_tracy = .{
             .url = "git+https://github.com/neurocyte/zig-tracy?ref=master#33baab18edde33cf132b778301634c87ada2aeef",
