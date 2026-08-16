@@ -18,6 +18,8 @@
 
 #if !defined(_WIN32)
 #include <asio/posix/stream_descriptor.hpp>
+#include <pthread.h>
+#include <unistd.h>
 #else
 #include <asio/windows/stream_handle.hpp>
 #include <windows.h>
@@ -80,6 +82,10 @@ static auto get_num_processors() -> long {
 const auto threads = max(min(get_num_processors(), MAX_THREAD), MIN_THREAD);
 #endif
 
+const char *STACK_SIZE_STR = getenv("THESPIAN_STACK_SIZE"); // NOLINT
+const auto stack_size = static_cast<size_t>(
+    atol(STACK_SIZE_STR ? STACK_SIZE_STR : "8388608")); // NOLINT
+
 struct context_impl {
   context_impl() : context_impl(threads) {}
   explicit context_impl(long thread_count)
@@ -128,8 +134,35 @@ auto context::create_strand() -> strand {
 
 void strand::post(function<void()> f) { ref->post(move(f)); }
 
+#if !defined(_WIN32)
+namespace {
+auto worker_entry(void *arg) -> void * {
+  unique_ptr<function<void()>> f{static_cast<function<void()> *>(arg)};
+  (*f)();
+  return nullptr;
+}
+
+auto worker_attr() -> pthread_attr_t {
+  pthread_attr_t attr;
+  if (pthread_attr_init(&attr) != 0)
+    abort();
+  auto size = stack_size;
+#if defined(PTHREAD_STACK_MIN)
+  size = max(size, static_cast<size_t>(PTHREAD_STACK_MIN));
+#endif
+  // pthread requires a multiple of the page size
+  const auto page = static_cast<size_t>(sysconf(_SC_PAGESIZE));
+  size = (size + page - 1) / page * page;
+  if (pthread_attr_setstacksize(&attr, size) != 0)
+    abort();
+  return attr;
+}
+} // namespace
+#endif
+
 auto context::run() -> void {
   const auto spawn_threads = max(ref->thread_count - 1, 0L);
+#if defined(_WIN32)
   vector<thread *> running;
   for (auto i = 0; i < spawn_threads; ++i) {
     auto *t = new thread([ctx = ref]() { ctx->asio->run(); });
@@ -140,6 +173,23 @@ auto context::run() -> void {
     t->join();
     delete t;
   }
+#else
+  auto attr = worker_attr();
+  vector<pthread_t> running;
+  running.reserve(static_cast<size_t>(spawn_threads));
+  for (auto i = 0; i < spawn_threads; ++i) {
+    auto f = make_unique<function<void()>>([ctx = ref]() { ctx->asio->run(); });
+    pthread_t tid{};
+    if (pthread_create(&tid, &attr, worker_entry, f.get()) != 0)
+      abort();
+    static_cast<void>(f.release());
+    running.push_back(tid);
+  }
+  pthread_attr_destroy(&attr);
+  ref->asio->run();
+  for (auto &tid : running)
+    pthread_join(tid, nullptr);
+#endif
 }
 
 auto context::pending_tasks() -> size_t { return ref->pending.load(); }
