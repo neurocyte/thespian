@@ -148,7 +148,7 @@ const Proc = struct {
             .stdin_behavior = stdin_behavior,
             .parent = tp.self_pid().clone(),
             .child = undefined,
-            .tag = try a.dupeZ(u8, tag),
+            .tag = try a.dupeSentinel(u8, tag, 0),
             .stdin_buffer = .empty,
         };
         return tp.spawn_link(a, self, Proc.start, tag);

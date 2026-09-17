@@ -145,7 +145,7 @@ const Proc = struct {
             .args = args,
             .parent = tp.self_pid().clone(),
             .child = child,
-            .tag = try a.dupeZ(u8, tag),
+            .tag = try a.dupeSentinel(u8, tag, 0),
             .stdin_buffer = .empty,
         };
         return tp.spawn_link(a, self, Proc.start, tag);
@@ -944,8 +944,8 @@ const Child = struct {
         }
         var io_status: windows.IO_STATUS_BLOCK = undefined;
 
-        const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).@"enum".fields.len;
-        var pathext_seen = [_]bool{false} ** num_supported_pathext;
+        const num_supported_pathext = @typeInfo(CreateProcessSupportedExtension).@"enum".field_names.len;
+        var pathext_seen: [num_supported_pathext]bool = @splat(false);
         var any_pathext_seen = false;
         var unappended_exists = false;
 

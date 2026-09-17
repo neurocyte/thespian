@@ -10,7 +10,7 @@ pub var stack_trace_on_errors: bool = false;
 pub const subprocess = if (builtin.os.tag == .windows) @import("subprocess_windows.zig") else @import("subprocess.zig");
 
 pub const in6_addr = [16]u8;
-pub const in6addr_loopback: in6_addr = [_]u8{0} ** 15 ++ [_]u8{1};
+pub const in6addr_loopback: in6_addr = @as([15]u8, @splat(0)) ++ [_]u8{1};
 
 pub const install_debugger = c.install_debugger;
 pub const install_remote_debugger = c.install_remote_debugger;
