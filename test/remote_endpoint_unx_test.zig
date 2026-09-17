@@ -140,7 +140,7 @@ test "remote: unx endpoint round-trip via listen/connect" {
     };
     var path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const path_slice = switch (builtin.os.tag) {
-        .linux => try std.fmt.bufPrintZ(&path_buf, "thespian_endpoint_unx_test_{d}", .{pid}),
+        .linux => try std.fmt.bufPrintSentinel(&path_buf, "thespian_endpoint_unx_test_{d}", .{pid}, 0),
         .windows => blk: {
             const tmp = std.testing.environ.getAlloc(allocator, "TEMP") catch |e| switch (e) {
                 error.EnvironmentVariableMissing => try allocator.dupe(u8, "C:\\Windows\\Temp"),

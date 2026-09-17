@@ -943,7 +943,9 @@ pub const tcp_acceptor = struct {
     }
 
     pub fn listen(self: *const Self, ip: in6_addr, port: u16) !u16 {
-        const ret = c.thespian_tcp_acceptor_listen(self.handle, @bitCast(ip), port);
+        var c_ip: c.struct_in6_addr = undefined;
+        @memcpy(std.mem.asBytes(&c_ip), &ip);
+        const ret = c.thespian_tcp_acceptor_listen(self.handle, c_ip, port);
         if (ret == 0) return error.ThespianTcpAcceptorListenFailed;
         return ret;
     }
@@ -968,7 +970,9 @@ pub const tcp_connector = struct {
     }
 
     pub fn connect(self: *const Self, ip: in6_addr, port: u16) !void {
-        const ret = c.thespian_tcp_connector_connect(self.handle, @bitCast(ip), port);
+        var c_ip: c.struct_in6_addr = undefined;
+        @memcpy(std.mem.asBytes(&c_ip), &ip);
+        const ret = c.thespian_tcp_connector_connect(self.handle, c_ip, port);
         if (ret < 0) return error.ThespianTcpConnectorConnectFailed;
     }
 
