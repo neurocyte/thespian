@@ -147,9 +147,9 @@ test "remote: unx endpoint round-trip via listen/connect" {
                 else => return e,
             };
             defer allocator.free(tmp);
-            break :blk try std.fmt.bufPrintZ(&path_buf, "{s}\\thespian_endpoint_unx_test_{d}.sock", .{ tmp, pid });
+            break :blk try std.fmt.bufPrintSentinel(&path_buf, "{s}\\thespian_endpoint_unx_test_{d}.sock", .{ tmp, pid }, 0);
         },
-        else => try std.fmt.bufPrintZ(&path_buf, "/tmp/thespian_endpoint_unx_test_{d}.sock", .{pid}),
+        else => try std.fmt.bufPrintSentinel(&path_buf, "/tmp/thespian_endpoint_unx_test_{d}.sock", .{pid}, 0),
     };
     const mode: thespian.unx_mode = if (builtin.os.tag == .linux) .abstract else .file;
 
