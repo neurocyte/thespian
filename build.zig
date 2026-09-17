@@ -96,8 +96,11 @@ pub fn build(b: *std.Build) void {
         },
     });
 
-    const c_step = b.addTranslateC(.{
-        .root_source_file = b.path("src/c/c.h"),
+    const Translator = @import("translate_c").Translator;
+    const translate_c = b.dependency("translate_c", .{});
+
+    const c_step: Translator = .init(translate_c, .{
+        .c_source_file = b.path("src/c/c.h"),
         .target = target,
         .optimize = optimize,
     });
@@ -109,7 +112,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
             .{ .name = "TypedInt", .module = TypedInt_mod },
-            .{ .name = "c", .module = c_step.createModule() },
+            .{ .name = "c", .module = c_step.mod },
         },
     });
     thespian_mod.addIncludePath(b.path("include"));
@@ -193,18 +196,18 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(remote_diamond);
 
     if (lib.rootModuleTarget().os.tag != .windows) {
-        const backtrace_step = b.addTranslateC(.{
-            .root_source_file = b.path("include/thespian/backtrace.h"),
+        const backtrace_step: Translator = .init(translate_c, .{
+            .c_source_file = b.path("include/thespian/backtrace.h"),
             .target = target,
             .optimize = optimize,
         });
         backtrace_step.addIncludePath(b.path("src"));
         backtrace_step.addIncludePath(b.path("include"));
-        thespian_mod.addImport("backtrace", backtrace_step.createModule());
+        thespian_mod.addImport("backtrace", backtrace_step.mod);
     }
 
-    const test_c_step = b.addTranslateC(.{
-        .root_source_file = b.path("test/tests.h"),
+    const test_c_step: Translator = .init(translate_c, .{
+        .c_source_file = b.path("test/tests.h"),
         .target = target,
         .optimize = optimize,
     });
@@ -215,7 +218,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "c", .module = test_c_step.createModule() },
+                .{ .name = "c", .module = test_c_step.mod },
             },
         }),
         .use_llvm = use_llvm,
