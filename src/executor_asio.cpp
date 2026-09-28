@@ -488,6 +488,12 @@ struct acceptor_impl {
         acceptor_{*ctx->asio, asio::ip::tcp::v6()}, socket_{*ctx->asio} {}
   auto bind(const in6_addr &ip, port_t port) -> error_code {
     error_code ec;
+#if !defined(_WIN32)
+    // allow rebinding while old connections are in TIME_WAIT
+    acceptor_.set_option(asio::socket_base::reuse_address(true), ec);
+    if (ec)
+      return ec;
+#endif
     ec = acceptor_.bind(to_endpoint_tcp(ip, port), ec);
     return ec;
   }
