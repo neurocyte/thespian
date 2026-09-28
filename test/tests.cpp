@@ -113,6 +113,7 @@ extern "C" auto runtestcase(const char *name) -> int {
   tests["perf_hub"] = perf_hub;
   tests["perf_ring"] = perf_ring;
   tests["perf_spawn"] = perf_spawn;
+  tests["socket_owner_exit"] = socket_owner_exit;
   tests["spawn_exit"] = spawn_exit;
   tests["timeout_test"] = timeout_test;
 

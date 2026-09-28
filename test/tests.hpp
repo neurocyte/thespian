@@ -27,5 +27,6 @@ testcase perf_cbor;
 testcase perf_hub;
 testcase perf_ring;
 testcase perf_spawn;
+testcase socket_owner_exit;
 testcase spawn_exit;
 testcase timeout_test;

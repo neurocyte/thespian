@@ -249,6 +249,7 @@ pub fn build(b: *std.Build) void {
         "test/perf_hub.cpp",
         "test/perf_ring.cpp",
         "test/perf_spawn.cpp",
+        "test/socket_owner_exit.cpp",
         "test/spawn_exit.cpp",
         "test/tests.cpp",
         "test/timeout_test.cpp",

@@ -73,6 +73,7 @@ using std::move;
 using std::mutex;
 using std::pair;
 using std::shared_ptr;
+using std::weak_ptr;
 using std::string;
 using std::string_view;
 using std::stringstream;
@@ -1145,7 +1146,10 @@ struct socket_impl {
   virtual ~socket_impl() { socket_.close(); };
 
   void write_complete(std::size_t length) {
+    const weak_ptr<bool> alive{alive_};
     auto ret = owner_.dispatch_sync("socket", tag_, "write_complete", length);
+    if (alive.expired())
+      return;
     if (not ret)
       auto _ = close_internal();
     write_pending_ = false;
@@ -1169,8 +1173,11 @@ struct socket_impl {
     socket_.write(write_buf_, [this, lifelock{owner_.lifetime_}](
                                   error_code ec, std::size_t length) {
       if (ec) {
+        const weak_ptr<bool> alive{alive_};
         auto _ = owner_.dispatch_sync("socket", tag_, "write_error", ec.value(),
                                       ec.message());
+        if (alive.expired())
+          return;
         _ = close_internal();
       } else {
         write_complete(length);
@@ -1204,11 +1211,12 @@ struct socket_impl {
                                                     std::size_t length) {
       if (!open_)
         return;
+      const weak_ptr<bool> alive{alive_};
       if (ec) {
         if (length == 0 and ec.value() == 2) { // EOF
           auto ret = owner_.dispatch_sync("socket", tag_, "read_complete",
                                           string_view{});
-          if (not ret)
+          if (not ret and not alive.expired())
             auto _ = close_internal();
         } else if (ec.value() == 125) { // ECANCELLED
           auto _ = close_internal();
@@ -1221,7 +1229,7 @@ struct socket_impl {
         if (length > 0)
           buf = string_view(socket_.read_buffer.data(), length);
         auto ret = owner_.dispatch_sync("socket", tag_, "read_complete", buf);
-        if (not ret)
+        if (not ret and not alive.expired())
           auto _ = close_internal();
       }
     });
@@ -1249,6 +1257,8 @@ struct socket_impl {
   vector<uint8_t> write_buf_;
   vector<uint8_t> write_q_;
   bool write_pending_{false};
+  // expires when this is destroyed
+  shared_ptr<bool> alive_{make_shared<bool>(true)};
 };
 
 auto socket::create(string_view tag, int fd) -> socket {
@@ -1301,7 +1311,10 @@ struct acceptor_impl {
                                     ec.message());
       return;
     }
+    const weak_ptr<bool> alive{alive_};
     auto ret = owner_.dispatch_sync("acceptor", tag_, "accept", fd);
+    if (alive.expired())
+      return;
     if (not ret)
       return close();
     start_accept();
@@ -1323,6 +1336,8 @@ struct acceptor_impl {
   executor::tcp::acceptor acceptor_;
   string tag_;
   bool open_{false};
+  // expires when this is destroyed
+  shared_ptr<bool> alive_{make_shared<bool>(true)};
 };
 
 auto acceptor::create(string_view tag) -> acceptor {
@@ -1464,7 +1479,10 @@ struct acceptor_impl {
                                     ec.message());
       return;
     }
+    const weak_ptr<bool> alive{alive_};
     auto ret = owner_.dispatch_sync("acceptor", tag_, "accept", fd);
+    if (alive.expired())
+      return;
     if (not ret)
       return close();
     start_accept();
@@ -1486,6 +1504,8 @@ struct acceptor_impl {
   executor::unx::acceptor acceptor_;
   string tag_;
   bool open_{false};
+  // expires when this is destroyed
+  shared_ptr<bool> alive_{make_shared<bool>(true)};
 };
 
 auto acceptor::create(string_view tag) -> acceptor {
@@ -2473,10 +2493,8 @@ struct connection {
       return shutdown("closed");
     if (m("socket", tag, "read_error", extract(err), extract(msg)))
       return shutdown("read_error", msg);
-    // the socket closes itself after reporting a write error and must still
-    // be alive when it does, so wait for "closed"
     if (m("socket", tag, "write_error", extract(err), extract(msg)))
-      return ok();
+      return shutdown("write_error", msg);
     if (m("debug_call_reply", extract(seq), extract(name), extract(r))) {
       write_json(cbor::map("id", take_call(seq), "ok", true, "from", name,
                            "result", r));

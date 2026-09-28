@@ -65,6 +65,10 @@ test "perf_spawn" {
     try testcase("perf_spawn");
 }
 
+test "socket_owner_exit" {
+    try testcase("socket_owner_exit");
+}
+
 test "spawn_exit" {
     try testcase("spawn_exit");
 }
