@@ -15,6 +15,10 @@ test "debug" {
     try testcase("debug");
 }
 
+test "debug_json" {
+    try testcase("debug_json");
+}
+
 test "endpoint_unx" {
     if (builtin.os.tag != .windows) {
         try testcase("endpoint_unx");

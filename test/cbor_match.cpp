@@ -191,6 +191,14 @@ auto test() -> result {
     check(json == R"({"five":5,"four":4,"three":[{3:3}]})");
   }
   {
+    buffer a;
+    a.push_json(R"([true, false, null, [], {}, [ ], { }, {"a": []}])");
+    string json = a.to_json();
+    if (verbose)
+      _ = log.send("keywords and empty json:", json);
+    check(json == R"([true,false,null,[],{},[],{},{"a":[]}])");
+  }
+  {
     buffer a = array("string\r\n", "\tstring\t", "\r\nstring");
     string json = a.to_json();
     if (verbose) {

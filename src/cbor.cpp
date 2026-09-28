@@ -262,6 +262,10 @@ static auto push_json_array(buffer &buf, json_iter &b, const json_iter &e)
   if (!match_char('[', b, e))
     return false;
   skip_wsp(b, e);
+  if (match_char(']', b, e)) {
+    buf.array_header(0);
+    return true;
+  }
   buffer inner;
   size_t count{0};
   if (!push_json_value(inner, b, e))
@@ -294,6 +298,10 @@ static auto push_json_map(buffer &buf, json_iter &b, const json_iter &e)
   if (!match_char('{', b, e))
     return false;
   skip_wsp(b, e);
+  if (match_char('}', b, e)) {
+    buf.map_header(0);
+    return true;
+  }
   buffer inner;
   size_t count{0};
   if (!push_json_value(inner, b, e))
@@ -333,7 +341,7 @@ static auto push_json_value(buffer &buf, json_iter &b, const json_iter &e)
   if ((c >= '0' && c <= '9') || c == '-') { // integer
     return push_json_number(buf, b, e);
   }
-  if ((c >= 'A' && c <= 'Z') || (c >= 'z' && c <= 'z')) { // keyword
+  if (c >= 'a' && c <= 'z') { // keyword
     return push_json_keyword(buf, b, e);
   }
   switch (c) {

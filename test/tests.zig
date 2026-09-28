@@ -2,6 +2,7 @@ const std = @import("std");
 pub const cpp = @import("tests_cpp.zig");
 pub const thespian = @import("tests_thespian.zig");
 pub const ip_tcp_client_server = @import("ip_tcp_client_server.zig");
+pub const debug_test = @import("debug_test.zig");
 pub const subprocess_test = @import("subprocess_test.zig");
 pub const remote_poc = @import("remote_poc_test.zig");
 pub const remote_roundtrip = @import("remote_roundtrip_test.zig");

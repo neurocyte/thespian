@@ -78,6 +78,7 @@ struct controller {
   unique_ptr<thespian::socket> s;
   size_t pong_count{};
   bool success_{false};
+  bool tapped_{false};
   string prev_buf;
 
   explicit controller(handle d, handle debuggee)
@@ -101,6 +102,7 @@ struct controller {
       s = make_unique<thespian::socket>(socket::create(tag, fd));
       s->read();
       s->write("\n");
+      s->write("tap debuggee\r\n");
       s->write("debuggee [\"ping\"]\n");
     } else if (m("socket", tag, "read_error", extract(err), extract(err_msg))) {
       return exit("read_error", err_msg);
@@ -124,7 +126,11 @@ struct controller {
       }
       prev_buf = buf;
     } else if (m("dispatch", extract(buf))) {
+      if (buf == "tap debuggee recv debug_tcp_connection [\"ping\"]")
+        tapped_ = true;
       if (buf == "debuggee [\"pong\"]") {
+        if (not tapped_)
+          return exit("missing_tap_event");
         s->write("debuggee [\"shutdown\"]\n");
       }
     } else if (m("socket", tag, "write_error", extract(err),
