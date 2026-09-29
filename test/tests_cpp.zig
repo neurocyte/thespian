@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const c = @import("c");
 
 fn testcase(name: [*c]const u8) !void {
@@ -24,9 +23,7 @@ test "debug_unx" {
 }
 
 test "endpoint_unx" {
-    if (builtin.os.tag != .windows) {
-        try testcase("endpoint_unx");
-    }
+    try testcase("endpoint_unx");
 }
 
 test "endpoint_tcp" {

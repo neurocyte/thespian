@@ -483,6 +483,8 @@ void socket::read(read_handler h) { ref->read(*this, move(h)); }
 void socket::close() { ref->close(); }
 #if !defined(_WIN32)
 void socket::close(int fd) { ::close(fd); }
+#else
+void socket::close(int fd) { ::closesocket(static_cast<SOCKET>(fd)); }
 #endif
 auto socket::release() -> int { return ref->release(); }
 

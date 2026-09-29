@@ -1800,14 +1800,15 @@ struct acceptor {
 
   auto receive(const handle &from, const buffer &m) -> result {
     int fd = 0;
+    int code{};
     string err;
 
     if (m("acceptor", tag, "accept", extract(fd))) {
       connection::start(fd, owner, "endpoint::tcp::passive");
     } else if (m("acceptor", tag, "closed")) {
       return exit("closed");
-    } else if (m("acceptor", tag, "error", extract(err))) {
-      return exit(err);
+    } else if (m("acceptor", tag, "error", extract(code), extract(err))) {
+      return exit("listen_error", err);
     } else if (m("ping")) {
       return from.send("pong");
     } else if (m("get", "port")) {
@@ -1845,7 +1846,6 @@ auto connect(in6_addr ip, port_t port, milliseconds retry_time,
 
 } // namespace tcp
 
-#if !defined(_WIN32)
 namespace unx {
 
 struct connector {
@@ -1937,14 +1937,15 @@ struct acceptor {
 
   auto receive(const handle &from, const buffer &m) -> result {
     int fd = 0;
+    int code{};
     string err;
 
     if (m("acceptor", tag, "accept", extract(fd))) {
       connection::start(fd, owner, "endpoint::unx::passive");
     } else if (m("acceptor", tag, "closed")) {
       return exit("closed");
-    } else if (m("acceptor", tag, "error", extract(err))) {
-      return exit(err);
+    } else if (m("acceptor", tag, "error", extract(code), extract(err))) {
+      return exit("listen_error", err);
     } else if (m("ping")) {
       return from.send("pong");
     } else if (m("get", "path")) {
@@ -1981,7 +1982,6 @@ auto connect(string_view path, mode m, milliseconds retry_time,
 }
 
 } // namespace unx
-#endif
 } // namespace endpoint
 
 namespace debug {
