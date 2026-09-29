@@ -88,7 +88,7 @@ const vector<step> steps{
      R"({"id":4,"ok":false,"error":"timeout"})"},
     {R"({"id":5,"cmd":"send","to":"nobody","msg":[]})",
      R"({"id":5,"ok":false,"error":"nobody not found"})"},
-    {R"({"id":6,"cmd":"tap","name":"debug_tcp_connection"})",
+    {R"({"id":6,"cmd":"tap","name":"debug_connection"})",
      R"({"id":6,"ok":false,"error":"cannot tap debug interface actors"})"},
     {R"({"id":7,"cmd":"frobnicate"})",
      R"({"id":7,"ok":false,"error":"unknown cmd: frobnicate"})"},

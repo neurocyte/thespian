@@ -2246,7 +2246,7 @@ struct call_proxy {
 };
 
 struct connection {
-  static constexpr string_view tag{"debug_tcp_connection"};
+  static constexpr string_view tag{"debug_connection"};
   context_impl &ctx;
   socket s;
   string prompt;

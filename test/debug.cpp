@@ -126,7 +126,7 @@ struct controller {
       }
       prev_buf = buf;
     } else if (m("dispatch", extract(buf))) {
-      if (buf == "tap debuggee recv debug_tcp_connection [\"ping\"]")
+      if (buf == "tap debuggee recv debug_connection [\"ping\"]")
         tapped_ = true;
       if (buf == "debuggee [\"pong\"]") {
         if (not tapped_)
