@@ -2697,7 +2697,9 @@ template <typename Listener> struct acceptor {
   template <typename... Args>
   static auto start(context_impl &ctx, const string &prompt, Args... args)
       -> expected<handle, error> {
-    return spawn(
+    auto *caller = private_call_noexcept();
+    return instance::spawn(
+        ctx,
         [&ctx, prompt, args...]() {
           ::thespian::receive(
               [p{make_shared<acceptor>(ctx, prompt, args...)}](
@@ -2706,7 +2708,8 @@ template <typename Listener> struct acceptor {
               });
           return ok();
         },
-        Listener::tag);
+        exit_handler{}, Listener::tag, thespian::ref{},
+        caller ? caller->env_ : env_t{});
   }
 };
 } // namespace

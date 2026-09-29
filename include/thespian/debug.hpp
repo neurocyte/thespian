@@ -18,9 +18,11 @@ auto isenabled(context &) -> bool;
 
 namespace tcp {
 
-// Start the debug console on [::1]:port. Must be called from within an actor.
-// Sending the returned handle any message other than "ping" stops listening.
-// There is no authentication: enable it in development builds only.
+// Start the debug console on [::1]:port. May be called from outside of an
+// actor, e.g. before context::run. When called from within an actor the
+// console inherits that actor's env. Sending the returned handle any
+// message other than "ping" stops listening. There is no authentication:
+// enable it in development builds only.
 //
 // Each line received is one command. Trailing "\r" is ignored. A connection
 // starts in text mode and switches to JSON mode for good at the first line
