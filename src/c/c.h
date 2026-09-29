@@ -1,3 +1,4 @@
+#include <thespian/c/debug.h>
 #include <thespian/c/file_descriptor.h>
 #include <thespian/c/file_stream.h>
 #include <thespian/c/instance.h>

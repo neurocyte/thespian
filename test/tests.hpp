@@ -15,6 +15,8 @@ using testcase = auto(thespian::context &ctx, bool &result, thespian::env_t env)
 
 testcase cbor_match;
 testcase debug;
+testcase debug_json;
+testcase debug_unx;
 testcase endpoint_tcp;
 testcase endpoint_unx;
 testcase hub_filter;
@@ -26,5 +28,6 @@ testcase perf_cbor;
 testcase perf_hub;
 testcase perf_ring;
 testcase perf_spawn;
+testcase socket_owner_exit;
 testcase spawn_exit;
 testcase timeout_test;

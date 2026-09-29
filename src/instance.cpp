@@ -35,7 +35,12 @@
 
 #if !defined(_WIN32)
 
+#include <cerrno>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 #else
 
@@ -43,6 +48,8 @@
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
+#include <afunix.h>
+#include <windows.h>
 
 #endif
 
@@ -67,11 +74,13 @@ using std::lock_guard;
 using std::make_pair;
 using std::make_shared;
 using std::map;
+using std::multimap;
 using std::memory_order_relaxed;
 using std::move;
 using std::mutex;
 using std::pair;
 using std::shared_ptr;
+using std::weak_ptr;
 using std::string;
 using std::string_view;
 using std::stringstream;
@@ -107,6 +116,10 @@ struct context_impl : context {
   map<string, handle> registry;
   mutex registry_mux;
   atomic<size_t> debug_enabled{0};
+
+  multimap<string, handle> taps;
+  mutex taps_mux;
+  atomic<size_t> tap_count{0};
 
   auto active_add() { return active.fetch_add(1, memory_order_relaxed); }
   auto active_sub() { return active.fetch_sub(1, memory_order_relaxed); }
@@ -160,6 +173,12 @@ void register_instance(context_impl &ctx, const handle &h);
 void unregister_instance(context_impl &ctx, const string &name);
 auto get_name(context_impl &ctx, const string &name) -> handle;
 auto get_names(context_impl &ctx) -> buffer;
+auto is_tapping(context_impl &ctx) -> bool {
+  return ctx.tap_count.load(memory_order_relaxed) > 0;
+}
+void tap_message(context_impl &ctx, const string &to, const handle &from,
+                 const buffer &m);
+void tap_exit(context_impl &ctx, const string &name, const buffer &m);
 } // namespace
 
 } // namespace debug
@@ -377,6 +396,8 @@ struct instance : std::enable_shared_from_this<instance> {
       do_trace_raw(ref_m(handle_ref(from)), "send", ref_m(this), m);
     if (in_shutdown)
       return deadsend(m, handle_ref(from));
+    if (debug::is_tapping(ctx) and not m.is_null())
+      debug::tap_message(ctx, name_, from, m);
 
     auto run_m = [this, from{move(from)}, m{move(m)}, lifelock{lifetime_}]() {
       run(from, m);
@@ -393,6 +414,8 @@ struct instance : std::enable_shared_from_this<instance> {
     for (const auto &h : links_)
       auto _ = h.send_raw(m);
     do_trace(channel::lifetime, "exit", m);
+    if (debug::is_tapping(ctx))
+      debug::tap_exit(ctx, name_, m);
     if (!exit_handlers_.empty()) {
       forward_list<exit_handler> exit_handlers;
       exit_handlers.swap(exit_handlers_);
@@ -1130,7 +1153,10 @@ struct socket_impl {
   virtual ~socket_impl() { socket_.close(); };
 
   void write_complete(std::size_t length) {
+    const weak_ptr<bool> alive{alive_};
     auto ret = owner_.dispatch_sync("socket", tag_, "write_complete", length);
+    if (alive.expired())
+      return;
     if (not ret)
       auto _ = close_internal();
     write_pending_ = false;
@@ -1154,8 +1180,11 @@ struct socket_impl {
     socket_.write(write_buf_, [this, lifelock{owner_.lifetime_}](
                                   error_code ec, std::size_t length) {
       if (ec) {
+        const weak_ptr<bool> alive{alive_};
         auto _ = owner_.dispatch_sync("socket", tag_, "write_error", ec.value(),
                                       ec.message());
+        if (alive.expired())
+          return;
         _ = close_internal();
       } else {
         write_complete(length);
@@ -1189,11 +1218,12 @@ struct socket_impl {
                                                     std::size_t length) {
       if (!open_)
         return;
+      const weak_ptr<bool> alive{alive_};
       if (ec) {
         if (length == 0 and ec.value() == 2) { // EOF
           auto ret = owner_.dispatch_sync("socket", tag_, "read_complete",
                                           string_view{});
-          if (not ret)
+          if (not ret and not alive.expired())
             auto _ = close_internal();
         } else if (ec.value() == 125) { // ECANCELLED
           auto _ = close_internal();
@@ -1206,7 +1236,7 @@ struct socket_impl {
         if (length > 0)
           buf = string_view(socket_.read_buffer.data(), length);
         auto ret = owner_.dispatch_sync("socket", tag_, "read_complete", buf);
-        if (not ret)
+        if (not ret and not alive.expired())
           auto _ = close_internal();
       }
     });
@@ -1234,6 +1264,8 @@ struct socket_impl {
   vector<uint8_t> write_buf_;
   vector<uint8_t> write_q_;
   bool write_pending_{false};
+  // expires when this is destroyed
+  shared_ptr<bool> alive_{make_shared<bool>(true)};
 };
 
 auto socket::create(string_view tag, int fd) -> socket {
@@ -1286,7 +1318,10 @@ struct acceptor_impl {
                                     ec.message());
       return;
     }
+    const weak_ptr<bool> alive{alive_};
     auto ret = owner_.dispatch_sync("acceptor", tag_, "accept", fd);
+    if (alive.expired())
+      return;
     if (not ret)
       return close();
     start_accept();
@@ -1308,6 +1343,8 @@ struct acceptor_impl {
   executor::tcp::acceptor acceptor_;
   string tag_;
   bool open_{false};
+  // expires when this is destroyed
+  shared_ptr<bool> alive_{make_shared<bool>(true)};
 };
 
 auto acceptor::create(string_view tag) -> acceptor {
@@ -1449,7 +1486,10 @@ struct acceptor_impl {
                                     ec.message());
       return;
     }
+    const weak_ptr<bool> alive{alive_};
     auto ret = owner_.dispatch_sync("acceptor", tag_, "accept", fd);
+    if (alive.expired())
+      return;
     if (not ret)
       return close();
     start_accept();
@@ -1471,6 +1511,8 @@ struct acceptor_impl {
   executor::unx::acceptor acceptor_;
   string tag_;
   bool open_{false};
+  // expires when this is destroyed
+  shared_ptr<bool> alive_{make_shared<bool>(true)};
 };
 
 auto acceptor::create(string_view tag) -> acceptor {
@@ -1758,14 +1800,15 @@ struct acceptor {
 
   auto receive(const handle &from, const buffer &m) -> result {
     int fd = 0;
+    int code{};
     string err;
 
     if (m("acceptor", tag, "accept", extract(fd))) {
       connection::start(fd, owner, "endpoint::tcp::passive");
     } else if (m("acceptor", tag, "closed")) {
       return exit("closed");
-    } else if (m("acceptor", tag, "error", extract(err))) {
-      return exit(err);
+    } else if (m("acceptor", tag, "error", extract(code), extract(err))) {
+      return exit("listen_error", err);
     } else if (m("ping")) {
       return from.send("pong");
     } else if (m("get", "port")) {
@@ -1803,7 +1846,6 @@ auto connect(in6_addr ip, port_t port, milliseconds retry_time,
 
 } // namespace tcp
 
-#if !defined(_WIN32)
 namespace unx {
 
 struct connector {
@@ -1895,14 +1937,15 @@ struct acceptor {
 
   auto receive(const handle &from, const buffer &m) -> result {
     int fd = 0;
+    int code{};
     string err;
 
     if (m("acceptor", tag, "accept", extract(fd))) {
       connection::start(fd, owner, "endpoint::unx::passive");
     } else if (m("acceptor", tag, "closed")) {
       return exit("closed");
-    } else if (m("acceptor", tag, "error", extract(err))) {
-      return exit(err);
+    } else if (m("acceptor", tag, "error", extract(code), extract(err))) {
+      return exit("listen_error", err);
     } else if (m("ping")) {
       return from.send("pong");
     } else if (m("get", "path")) {
@@ -1939,7 +1982,6 @@ auto connect(string_view path, mode m, milliseconds retry_time,
 }
 
 } // namespace unx
-#endif
 } // namespace endpoint
 
 namespace debug {
@@ -2013,23 +2055,212 @@ auto get_names(context_impl &ctx) -> buffer {
   }
   return b;
 }
+thread_local bool in_tap{false}; // NOLINT
+
+auto instance_name(const handle &h) -> string {
+  if (auto p = handle_ref(h).lock())
+    return p->name();
+  return {};
+}
+
+auto tap_subscribers(context_impl &ctx, const string &name) -> vector<handle> {
+  vector<handle> subs;
+  const lock_guard<mutex> lock(ctx.taps_mux);
+  auto [b, e] = ctx.taps.equal_range(name);
+  while (b != e) {
+    if (b->second.expired()) {
+      b = ctx.taps.erase(b);
+      ctx.tap_count.fetch_sub(1, memory_order_relaxed);
+    } else {
+      subs.push_back(b->second);
+      ++b;
+    }
+  }
+  return subs;
+}
+
+void tap_deliver(const vector<handle> &subs, const buffer &ev) {
+  for (const auto &s : subs)
+    if (auto p = handle_ref(s).lock())
+      auto _ = p->queue(handle{}, ev);
+}
+
+void tap_message(context_impl &ctx, const string &to, const handle &from,
+                 const buffer &m) {
+  if (in_tap)
+    return;
+  in_tap = true;
+  auto from_name = instance_name(from);
+  if (not to.empty()) {
+    auto subs = tap_subscribers(ctx, to);
+    if (not subs.empty())
+      tap_deliver(subs, array("debug_tap", to, "recv", from_name, m));
+  }
+  if (not from_name.empty()) {
+    auto subs = tap_subscribers(ctx, from_name);
+    if (not subs.empty())
+      tap_deliver(subs, array("debug_tap", from_name, "send", to, m));
+  }
+  in_tap = false;
+}
+
+void tap_exit(context_impl &ctx, const string &name, const buffer &m) {
+  if (in_tap or name.empty())
+    return;
+  in_tap = true;
+  auto subs = tap_subscribers(ctx, name);
+  if (not subs.empty())
+    tap_deliver(subs, array("debug_tap", name, "exit", "", m));
+  in_tap = false;
+}
+
+void tap_add(context_impl &ctx, const string &name, const handle &sub) {
+  const lock_guard<mutex> lock(ctx.taps_mux);
+  auto [b, e] = ctx.taps.equal_range(name);
+  for (; b != e; ++b)
+    if (b->second == sub)
+      return;
+  ctx.taps.emplace(name, sub);
+  ctx.tap_count.fetch_add(1, memory_order_relaxed);
+}
+
+// an empty name removes all taps held by sub
+auto tap_remove(context_impl &ctx, const string &name, const handle &sub)
+    -> bool {
+  bool found{false};
+  const lock_guard<mutex> lock(ctx.taps_mux);
+  for (auto it = ctx.taps.begin(); it != ctx.taps.end();) {
+    if ((name.empty() or it->first == name) and it->second == sub) {
+      it = ctx.taps.erase(it);
+      ctx.tap_count.fetch_sub(1, memory_order_relaxed);
+      found = true;
+    } else {
+      ++it;
+    }
+  }
+  return found;
+}
 } // namespace
 
 namespace tcp {
 
 namespace {
 
+auto value_type(const buffer &v) -> type {
+  return buffer::value_accessor{.b = v.raw_cbegin(), .e = v.raw_cend()}
+      .type_();
+}
+
+auto get_fields(const buffer &cmd) -> map<string, buffer> {
+  if (value_type(cmd) != type::map)
+    throw domain_error{"command must be a JSON object"};
+  map<string, buffer> fields;
+  auto it = cmd.begin();
+  const auto end = cmd.end();
+  while (it != end) {
+    auto key = *it;
+    if (key.type_() != type::string)
+      throw domain_error{"command keys must be strings"};
+    string k{static_cast<string_view>(key)};
+    ++it;
+    if (not(it != end))
+      break;
+    auto vb = it.b;
+    ++it;
+    buffer v;
+    v.insert(v.raw_cend(), vb, it.b);
+    fields[k] = move(v);
+  }
+  return fields;
+}
+
+auto require(const map<string, buffer> &f, const string &k) -> const buffer & {
+  auto it = f.find(k);
+  if (it == f.end())
+    throw domain_error{"missing field: " + k};
+  return it->second;
+}
+
+auto require_string(const map<string, buffer> &f, const string &k) -> string {
+  const auto &v = require(f, k);
+  if (value_type(v) != type::string)
+    throw domain_error{"field must be a string: " + k};
+  return string{static_cast<string_view>(
+      buffer::value_accessor{.b = v.raw_cbegin(), .e = v.raw_cend()})};
+}
+
+auto optional_int(const map<string, buffer> &f, const string &k, int64_t def)
+    -> int64_t {
+  auto it = f.find(k);
+  if (it == f.end())
+    return def;
+  if (value_type(it->second) != type::number)
+    throw domain_error{"field must be a number: " + k};
+  return static_cast<int64_t>(buffer::value_accessor{
+      .b = it->second.raw_cbegin(), .e = it->second.raw_cend()});
+}
+
+// Sends one request on behalf of a debug connection and reports the first
+// message sent back to it (or a timeout) to the connection. After a timeout
+// it stays alive, discarding late replies, until the connection exits so
+// the target is not failed with a DEADSEND.
+struct call_proxy {
+  handle conn;
+  uint64_t seq;
+  timeout t{never()};
+  bool timed_out{false};
+
+  call_proxy(handle conn, uint64_t seq) : conn{move(conn)}, seq{seq} {}
+
+  auto receive(const handle &from, const buffer &m) -> result {
+    if (timed_out)
+      return ok();
+    if (m("debug_call_timeout")) {
+      timed_out = true;
+      return conn.send("debug_call_timeout", seq);
+    }
+    t.cancel();
+    auto _ = conn.send("debug_call_reply", seq, instance_name(from), m);
+    return exit();
+  }
+
+  static auto start(handle conn, uint64_t seq, handle to, buffer msg,
+                    int64_t timeout_ms) -> expected<handle, error> {
+    return spawn_link(
+        [conn, seq, to, msg, timeout_ms]() -> result {
+          auto p = make_shared<call_proxy>(conn, seq);
+          p->t = create_timeout(milliseconds(timeout_ms),
+                                array("debug_call_timeout"));
+          auto ret = to.send_raw(msg);
+          if (not ret) {
+            auto _ = conn.send("debug_call_error", seq, ret.error());
+            return exit();
+          }
+          ::thespian::receive([p](const auto &from, const auto &m) {
+            return p->receive(from, m);
+          });
+          return ok();
+        },
+        "debug_call");
+  }
+};
+
 struct connection {
-  static constexpr string_view tag{"debug_tcp_connection"};
+  static constexpr string_view tag{"debug_connection"};
   context_impl &ctx;
   socket s;
   string prompt;
   string prev_buf;
+  handle self_;
+  bool json_mode{false};
   bool close_on_write_complete{false};
+  size_t unwritten{0};
+  uint64_t next_call{0};
+  map<uint64_t, buffer> pending_calls;
 
   connection(context_impl &ctx, int fd, string _prompt)
       : ctx{ctx}, s{socket::create(tag, fd)}, prompt(move(_prompt)) {
-    s.write(prompt);
+    write(prompt);
     s.read();
   }
 
@@ -2043,7 +2274,66 @@ struct connection {
     return make_pair(word, str);
   }
 
+  void write(string_view data) {
+    unwritten += data.size();
+    s.write(data);
+  }
+  void write_line(const string &line) {
+    write(line);
+    write("\n");
+  }
+  void write_json(const buffer &b) { write_line(b.to_json()); }
+  void reply_ok(const buffer &id) {
+    write_json(cbor::map("id", id, "ok", true));
+  }
+  void reply_error(const buffer &id, string_view err) {
+    write_json(cbor::map("id", id, "ok", false, "error", err));
+  }
+
+  auto lookup(const string &name) -> handle {
+    const handle a = get_name(ctx, name);
+    if (a.expired())
+      throw domain_error{name + " not found"};
+    return a;
+  }
+
+  // returns an error message on failure
+  auto tap(const string &name) -> string {
+    if (name.starts_with("debug_"))
+      return "cannot tap debug interface actors";
+    tap_add(ctx, name, self_);
+    return {};
+  }
+
+  auto take_call(uint64_t seq) -> buffer {
+    auto it = pending_calls.find(seq);
+    if (it == pending_calls.end())
+      return buffer::null_value;
+    auto id = move(it->second);
+    pending_calls.erase(it);
+    return id;
+  }
+
   auto dispatch(string buf) -> bool {
+    if (not buf.empty() and buf.back() == '\r')
+      buf.pop_back();
+    auto first = buf.find_first_not_of(" \t");
+    if (first != string::npos and buf[first] == '{') {
+      json_mode = true;
+      return dispatch_json(buf);
+    }
+    if (json_mode) {
+      if (first != string::npos)
+        reply_error(buffer::null_value, "expected a JSON object");
+      return true;
+    }
+    if (not dispatch_text(buf))
+      return false;
+    write(prompt);
+    return true;
+  }
+
+  auto dispatch_text(string buf) -> bool {
     if (buf.empty()) {
       vector<string> expired_names;
       {
@@ -2054,53 +2344,125 @@ struct connection {
             if (first)
               first = false;
             else
-              s.write(" ");
-            s.write(a.first);
+              write(" ");
+            write(a.first);
           } else {
             expired_names.push_back(a.first);
           }
         }
       }
-      s.write("\n");
+      write("\n");
       for (const auto &a : expired_names)
         debug::unregister_instance(ctx, a);
-    } else if (buf == "bye") {
-      s.write("bye\n");
+      return true;
+    }
+    if (buf == "bye") {
+      write("bye\n");
       return false;
+    }
+    auto x = getword(buf);
+    if ((x.first == "tap" or x.first == "untap") and not x.second.empty()) {
+      string err;
+      if (x.first == "tap")
+        err = tap(x.second);
+      else if (not tap_remove(ctx, x.second, self_))
+        err = x.second + " not tapped";
+      if (not err.empty())
+        write_line("error: " + err);
+      return true;
+    }
+    buf = x.second;
+    const handle a = get_name(ctx, x.first);
+    if (a.expired()) {
+      write("error: ");
+      write(x.first);
+      write(" not found\n");
     } else {
-      auto x = getword(buf);
-      buf = x.second;
-      const handle a = get_name(ctx, x.first);
-      if (a.expired()) {
-        s.write("error: ");
-        s.write(x.first);
-        s.write(" not found\n");
-      } else {
-        try {
-          buffer m;
-          m.push_json(buf);
-          auto ret = a.send_raw(m);
-          if (not ret) {
-            s.write("error: ");
-            s.write(ret.error().to_json());
-            s.write("\n");
-          }
-        } catch (const domain_error &e) {
-          s.write("error: ");
-          s.write(e.what());
-          s.write("\n");
+      try {
+        buffer m;
+        m.push_json(buf);
+        auto ret = a.send_raw(m);
+        if (not ret) {
+          write("error: ");
+          write(ret.error().to_json());
+          write("\n");
         }
+      } catch (const domain_error &e) {
+        write("error: ");
+        write(e.what());
+        write("\n");
       }
     }
-    s.write(prompt);
     return true;
   }
 
-  auto receive(handle from, const buffer &m) -> result {
+  auto dispatch_json(const string &line) -> bool {
+    buffer id{buffer::null_value};
+    try {
+      buffer cmd;
+      cmd.push_json(line);
+      auto f = get_fields(cmd);
+      if (auto it = f.find("id"); it != f.end())
+        id = it->second;
+      auto op = require_string(f, "cmd");
+      if (op == "list") {
+        write_json(cbor::map("id", id, "ok", true, "result", get_names(ctx)));
+      } else if (op == "send") {
+        auto ret = lookup(require_string(f, "to")).send_raw(require(f, "msg"));
+        if (ret)
+          reply_ok(id);
+        else
+          reply_error(id, ret.error().to_json());
+      } else if (op == "call") {
+        auto to = lookup(require_string(f, "to"));
+        const auto &msg = require(f, "msg");
+        auto timeout_ms = optional_int(f, "timeout_ms", 5000);
+        auto seq = next_call++;
+        pending_calls[seq] = id;
+        auto ret = call_proxy::start(self_, seq, to, msg, timeout_ms);
+        if (not ret) {
+          pending_calls.erase(seq);
+          reply_error(id, ret.error().to_json());
+        }
+      } else if (op == "tap") {
+        auto err = tap(require_string(f, "name"));
+        if (err.empty())
+          reply_ok(id);
+        else
+          reply_error(id, err);
+      } else if (op == "untap") {
+        auto name = require_string(f, "name");
+        if (tap_remove(ctx, name, self_))
+          reply_ok(id);
+        else
+          reply_error(id, name + " not tapped");
+      } else if (op == "bye") {
+        reply_ok(id);
+        return false;
+      } else {
+        reply_error(id, "unknown cmd: " + op);
+      }
+    } catch (const domain_error &e) {
+      reply_error(id, e.what());
+    }
+    return true;
+  }
+
+  auto shutdown(string_view reason, string_view msg = {}) -> result {
+    tap_remove(ctx, {}, self_);
+    return msg.empty() ? exit(reason) : exit(reason, msg);
+  }
+
+  auto receive(const handle &from, const buffer &m) -> result {
     string buf;
     int written = 0;
     int err = 0;
     string_view msg;
+    uint64_t seq{};
+    string name;
+    string dir;
+    string peer;
+    buffer::range r;
 
     if (m("dispatch", extract(buf))) {
       if (not dispatch(buf))
@@ -2129,28 +2491,58 @@ struct connection {
       return ok();
     }
     if (m("socket", tag, "write_complete", extract(written))) {
-      if (close_on_write_complete)
+      unwritten -= std::min(unwritten, static_cast<size_t>(written));
+      if (close_on_write_complete and unwritten == 0)
         s.close();
       return ok();
     }
-    if (m("socket", tag, "closed")) {
-      return exit("closed");
+    if (m("socket", tag, "closed"))
+      return shutdown("closed");
+    if (m("socket", tag, "read_error", extract(err), extract(msg)))
+      return shutdown("read_error", msg);
+    if (m("socket", tag, "write_error", extract(err), extract(msg)))
+      return shutdown("write_error", msg);
+    if (m("debug_call_reply", extract(seq), extract(name), extract(r))) {
+      write_json(cbor::map("id", take_call(seq), "ok", true, "from", name,
+                           "result", r));
+      return ok();
     }
-    if (m("socket", tag, "read_error", extract(err), extract(msg))) {
-      return exit("read_error", msg);
+    if (m("debug_call_timeout", extract(seq))) {
+      reply_error(take_call(seq), "timeout");
+      return ok();
     }
-    if (m("socket", tag, "write_error", extract(err), extract(msg))) {
-      return exit("write_error", msg);
+    if (m("debug_call_error", extract(seq), extract(r))) {
+      reply_error(take_call(seq), r.to_json());
+      return ok();
     }
-    string name;
-    if (auto p = handle_ref(from).lock())
-      name = p->name();
-    else
+    if (m("debug_tap", extract(name), extract(dir), extract(peer),
+          extract(r))) {
+      if (json_mode) {
+        if (dir == "exit")
+          write_json(cbor::map("event", "tap", "actor", name, "dir", dir,
+                               "msg", r));
+        else
+          write_json(cbor::map("event", "tap", "actor", name, "dir", dir,
+                               "peer", peer, "msg", r));
+      } else if (dir == "exit") {
+        write_line("tap " + name + " exit " + r.to_json());
+      } else {
+        write_line("tap " + name + " " + dir + " " + peer + " " +
+                   r.to_json());
+      }
+      return ok();
+    }
+    name = instance_name(from);
+    if (name.empty())
       name = "expired";
-    s.write(name);
-    s.write(" ");
-    s.write(m.to_json());
-    s.write("\n");
+    if (json_mode) {
+      write_json(cbor::map("event", "message", "from", name, "msg", m));
+    } else {
+      write(name);
+      write(" ");
+      write(m.to_json());
+      write("\n");
+    }
     return ok();
   }
 
@@ -2158,8 +2550,9 @@ struct connection {
       -> expected<handle, error> {
     return spawn(
         [&ctx, fd, prompt]() {
-          ::thespian::receive([p{make_shared<connection>(ctx, fd, prompt)}](
-                                  const auto &from, const auto &m) {
+          auto p = make_shared<connection>(ctx, fd, prompt);
+          p->self_ = self();
+          ::thespian::receive([p](const auto &from, const auto &m) {
             return p->receive(from, m);
           });
           return ok();
@@ -2168,69 +2561,174 @@ struct connection {
   }
 };
 
-struct acceptor {
-  static constexpr string_view tag{"debug_acceptor_tcp"};
-  acceptor(const acceptor &) = delete;
-  acceptor(acceptor &&) = delete;
-  auto operator=(const acceptor &) -> acceptor & = delete;
-  auto operator=(acceptor &&) -> acceptor & = delete;
 
+struct tcp_listener {
+  static constexpr string_view tag{"debug_acceptor_tcp"};
+  ::thespian::tcp::acceptor a{::thespian::tcp::acceptor::create(tag)};
+
+  explicit tcp_listener(port_t port) { a.listen(in6addr_loopback, port); }
+  void close() { a.close(); }
+  void listen_failed() {}
+};
+
+#if !defined(_WIN32)
+auto is_socket_file(const string &path) -> bool {
+  struct stat st{};
+  return ::lstat(path.c_str(), &st) == 0 and S_ISSOCK(st.st_mode);
+}
+
+auto connect_refused(const sockaddr_un &addr) -> bool {
+  const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd < 0)
+    return false;
+  const bool refused =
+      ::connect(fd, reinterpret_cast<const sockaddr *>(&addr), // NOLINT
+                sizeof(addr)) != 0 and
+      errno == ECONNREFUSED;
+  ::close(fd);
+  return refused;
+}
+
+void restrict_to_owner(const string &path) {
+  ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+}
+#else
+auto is_socket_file(const string &path) -> bool {
+  WIN32_FIND_DATAA data{};
+  HANDLE h = ::FindFirstFileA(path.c_str(), &data);
+  if (h == INVALID_HANDLE_VALUE) // NOLINT
+    return false;
+  ::FindClose(h);
+  return (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) and
+         data.dwReserved0 == IO_REPARSE_TAG_AF_UNIX;
+}
+
+auto connect_refused(const sockaddr_un &addr) -> bool {
+  const SOCKET fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd == INVALID_SOCKET)
+    return false;
+  const bool refused =
+      ::connect(fd, reinterpret_cast<const sockaddr *>(&addr), // NOLINT
+                sizeof(addr)) != 0 and
+      ::WSAGetLastError() == WSAECONNREFUSED;
+  ::closesocket(fd);
+  return refused;
+}
+
+void restrict_to_owner(const string & /*path*/) {}
+#endif
+
+auto is_stale_socket(const string &path) -> bool {
+  sockaddr_un addr{};
+  if (path.size() >= sizeof(addr.sun_path) or not is_socket_file(path))
+    return false;
+  addr.sun_family = AF_UNIX;
+  std::copy(path.begin(), path.end(), addr.sun_path); // NOLINT
+  return connect_refused(addr);
+}
+
+void remove_file(const string &path) {
+#if !defined(_WIN32)
+  ::unlink(path.c_str());
+#else
+  ::DeleteFileA(path.c_str());
+#endif
+}
+
+struct unx_listener {
+  static constexpr string_view tag{"debug_acceptor_unx"};
+  ::thespian::unx::acceptor a{::thespian::unx::acceptor::create(tag)};
+  string path;
+  bool owns_path{false};
+
+  unx_listener(string path_, ::thespian::unx::mode m) : path{move(path_)} {
+    owns_path = m == ::thespian::unx::mode::file;
+    if (owns_path and is_stale_socket(path))
+      remove_file(path);
+    a.listen(path, m);
+    if (owns_path)
+      restrict_to_owner(path);
+  }
+  ~unx_listener() {
+    if (owns_path)
+      remove_file(path);
+  }
+  unx_listener(const unx_listener &) = delete;
+  unx_listener(unx_listener &&) = delete;
+  auto operator=(const unx_listener &) -> unx_listener & = delete;
+  auto operator=(unx_listener &&) -> unx_listener & = delete;
+
+  void close() { a.close(); }
+  void listen_failed() { owns_path = false; }
+};
+
+template <typename Listener> struct acceptor {
   context_impl &ctx;
-  ::thespian::tcp::acceptor a;
-  handle s;
+  Listener l;
   string prompt;
 
-  acceptor(context_impl &ctx, port_t port, string _prompt)
-      : ctx{ctx}, a{::thespian::tcp::acceptor::create(tag)},
-        prompt(move(_prompt)) {
-    a.listen(in6addr_loopback, port);
-  }
-  ~acceptor() = default;
+  template <typename... Args>
+  explicit acceptor(context_impl &ctx, string prompt_, Args &&...args)
+      : ctx{ctx}, l{std::forward<Args>(args)...}, prompt{move(prompt_)} {}
 
   auto receive(const handle &from, const buffer &m) -> result {
     int fd{};
+    int code{};
     string err;
 
-    if (m("acceptor", tag, "accept", extract(fd))) {
+    if (m("acceptor", Listener::tag, "accept", extract(fd))) {
       auto ret = connection::start(ctx, fd, prompt);
-      if (ret)
-        s = ret.value();
-      else
+      if (not ret)
         return to_error(ret.error());
-    } else if (m("socket", connection::tag, "closed")) {
-      ;
-    } else if (m("acceptor", tag, "closed")) {
+    } else if (m("acceptor", Listener::tag, "closed")) {
       return exit("closed");
-    } else if (m("acceptor", tag, "error", extract(err))) {
-      return exit(err);
+    } else if (m("acceptor", Listener::tag, "error", extract(code),
+                 extract(err))) {
+      l.listen_failed();
+      return exit("listen_error", err);
     } else if (m("ping")) {
       return from.send("pong");
     } else {
-      a.close();
+      l.close();
     }
     return ok();
   }
 
-  static auto start(context_impl &ctx, port_t port, const string &prompt)
+  template <typename... Args>
+  static auto start(context_impl &ctx, const string &prompt, Args... args)
       -> expected<handle, error> {
-    return spawn(
-        [&ctx, port, prompt]() {
-          ::thespian::receive([p{make_shared<acceptor>(ctx, port, prompt)}](
-                                  const auto &from, const auto &m) {
-            return p->receive(from, m);
-          });
+    auto *caller = private_call_noexcept();
+    return instance::spawn(
+        ctx,
+        [&ctx, prompt, args...]() {
+          ::thespian::receive(
+              [p{make_shared<acceptor>(ctx, prompt, args...)}](
+                  const auto &from, const auto &m) {
+                return p->receive(from, m);
+              });
           return ok();
         },
-        tag);
+        exit_handler{}, Listener::tag, thespian::ref{},
+        caller ? caller->env_ : env_t{});
   }
 };
 } // namespace
 
 auto create(context &ctx, port_t port, const string &prompt)
     -> expected<handle, error> {
-  return acceptor::start(impl(ctx), port, prompt);
+  return acceptor<tcp_listener>::start(impl(ctx), prompt, port);
 }
 
 } // namespace tcp
+
+namespace unx {
+
+auto create(context &ctx, const string &path, ::thespian::unx::mode mode,
+            const string &prompt) -> expected<handle, error> {
+  return tcp::acceptor<tcp::unx_listener>::start(impl(ctx), prompt, path,
+                                                  mode);
+}
+
+} // namespace unx
 } // namespace debug
 } // namespace thespian

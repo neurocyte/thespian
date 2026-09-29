@@ -191,6 +191,14 @@ auto test() -> result {
     check(json == R"({"five":5,"four":4,"three":[{3:3}]})");
   }
   {
+    buffer a;
+    a.push_json(R"([true, false, null, [], {}, [ ], { }, {"a": []}])");
+    string json = a.to_json();
+    if (verbose)
+      _ = log.send("keywords and empty json:", json);
+    check(json == R"([true,false,null,[],{},[],{},{"a":[]}])");
+  }
+  {
     buffer a = array("string\r\n", "\tstring\t", "\r\nstring");
     string json = a.to_json();
     if (verbose) {
@@ -212,6 +220,50 @@ auto test() -> result {
     check(a.hexdump() == "28: 83 68 73 74 72 69 6e 67 0d 0a 68 09 73 74 "
                          "72 69 6e 67 09 68 0d 0a 73 74 72 69 6e 67");
     check(json == R"(["string\r\n","\tstring\t","\r\nstring"])");
+  }
+  {
+    buffer a;
+    a.push_json(R"(["adjust_fontsize", [4.0, -1.5, 2.5e3, 1E-2, 7]])");
+    string json = a.to_json();
+    if (verbose) {
+      _ = log.send("float buffer:", a.hexdump());
+      _ = log.send("float json:", json);
+    }
+    check(json == R"(["adjust_fontsize",[4.0,-1.5,2500.0,0.01,7]])");
+    double d{};
+    float f{};
+    double i{};
+    check(a("adjust_fontsize", A(extract(d), extract(f), type::floating,
+                                 type::floating, extract(i))));
+    check(d == 4.0);
+    check(f == -1.5F);
+    check(i == 7.0);
+    check(a(type::string, A(type::floating, type::floating, type::floating,
+                            type::floating, type::number)));
+  }
+  {
+    buffer a = array(0.5, 2.0F, "after");
+    check(a.hexdump() == "21: 83 fb 3f e0 00 00 00 00 00 00 fa 40 00 00 00 "
+                         "65 61 66 74 65 72");
+    check(a(type::floating, type::floating, "after"));
+    check(a.to_json() == R"([0.5,2.0,"after"])");
+  }
+  {
+    buffer a{0x82, 0xf9, 0x3e, 0x00, 0xf9, 0x7c, 0x00}; // half 1.5, half inf
+    check(a.to_json() == "[1.5,null]");
+    double d{};
+    check(a(extract(d), type::floating));
+    check(d == 1.5);
+  }
+  {
+    buffer a;
+    bool failed{false};
+    try {
+      a.push_json("[1.]");
+    } catch (const std::exception &) {
+      failed = true;
+    }
+    check(failed);
   }
   {
     buffer a = array(array());

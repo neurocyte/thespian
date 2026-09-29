@@ -13,12 +13,16 @@ constexpr auto buffer_reserve = 128;
 constexpr auto cbor_magic_null = 0xf6;
 constexpr auto cbor_magic_true = 0xf5;
 constexpr auto cbor_magic_false = 0xf4;
+constexpr auto cbor_magic_float16 = 0xf9;
+constexpr auto cbor_magic_float32 = 0xfa;
+constexpr auto cbor_magic_float64 = 0xfb;
 
 constexpr auto cbor_magic_type_array = 4;
 constexpr auto cbor_magic_type_map = 5;
 
 enum class type : uint8_t {
   number,
+  floating,
   bytes,
   string,
   array,
@@ -178,6 +182,9 @@ public:
     return *this;
   }
 
+  auto push_float(float value) -> buffer &;
+  auto push_double(double value) -> buffer &;
+
   // clang-format off
   auto push(const unsigned long long int &i) -> buffer & { return push_uint(i); }
   auto push(const unsigned long int &i) -> buffer & { return push_uint(i); }
@@ -190,6 +197,8 @@ public:
   auto push(const signed short int &i) -> buffer & { return push_int(i); }
   auto push(const signed char &i) -> buffer & { return push_int(i); }
   auto push(const bool &v) -> buffer & { return push_bool(v); }
+  auto push(const float &v) -> buffer & { return push_float(v); }
+  auto push(const double &v) -> buffer & { return push_double(v); }
   auto push(const std::string &s) -> buffer & { return push_string(s); }
   auto push(const std::string_view &s) -> buffer & { return push_string(s); }
   auto push(char *s) -> buffer & { return push_string(std::string_view(s)); }
@@ -289,6 +298,7 @@ public:
       case type::array:
       case type::map:
         return f(static_cast<range>(*this));
+      case type::floating:
       case type::null:
       case type::bytes:
       case type::tag:
@@ -418,6 +428,8 @@ auto extract(unsigned short int &) -> buffer::extractor;
 auto extract(unsigned char &) -> buffer::extractor;
 
 auto extract(bool &) -> buffer::extractor;
+auto extract(double &) -> buffer::extractor;
+auto extract(float &) -> buffer::extractor;
 auto extract(std::string &) -> buffer::extractor;
 auto extract(std::string_view &) -> buffer::extractor;
 auto extract(buffer::range &) -> buffer::extractor;

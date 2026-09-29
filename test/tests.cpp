@@ -101,6 +101,8 @@ extern "C" auto runtestcase(const char *name) -> int {
   map<string, testcase *> tests;
   tests["cbor_match"] = cbor_match;
   tests["debug"] = debug;
+  tests["debug_json"] = debug_json;
+  tests["debug_unx"] = debug_unx;
   tests["endpoint_unx"] = endpoint_unx;
   tests["endpoint_tcp"] = endpoint_tcp;
   tests["hub_filter"] = hub_filter;
@@ -112,6 +114,7 @@ extern "C" auto runtestcase(const char *name) -> int {
   tests["perf_hub"] = perf_hub;
   tests["perf_ring"] = perf_ring;
   tests["perf_spawn"] = perf_spawn;
+  tests["socket_owner_exit"] = socket_owner_exit;
   tests["spawn_exit"] = spawn_exit;
   tests["timeout_test"] = timeout_test;
 

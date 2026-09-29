@@ -54,6 +54,7 @@ pub fn build(b: *std.Build) void {
     lib.root_module.addCSourceFiles(.{ .files = &[_][]const u8{
         "src/backtrace.cpp",
         "src/c/context.cpp",
+        "src/c/debug.cpp",
         "src/c/env.cpp",
         "src/c/file_descriptor.cpp",
         "src/c/file_stream.cpp",
@@ -239,6 +240,8 @@ pub fn build(b: *std.Build) void {
     tests.root_module.addCSourceFiles(.{ .files = &[_][]const u8{
         "test/cbor_match.cpp",
         "test/debug.cpp",
+        "test/debug_json.cpp",
+        "test/debug_unx.cpp",
         "test/endpoint_unx.cpp",
         "test/endpoint_tcp.cpp",
         "test/hub_filter.cpp",
@@ -250,6 +253,7 @@ pub fn build(b: *std.Build) void {
         "test/perf_hub.cpp",
         "test/perf_ring.cpp",
         "test/perf_spawn.cpp",
+        "test/socket_owner_exit.cpp",
         "test/spawn_exit.cpp",
         "test/tests.cpp",
         "test/timeout_test.cpp",

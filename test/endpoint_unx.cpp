@@ -7,9 +7,16 @@
 #include <thespian/unx.hpp>
 
 #include <cstring>
+#include <filesystem>
 #include <sstream>
-#include <unistd.h>
 #include <utility>
+
+#if !defined(_WIN32)
+#include <unistd.h>
+#else
+#include <process.h>
+#include <windows.h>
+#endif
 
 using cbor::array;
 using cbor::buffer;
@@ -37,15 +44,31 @@ using thespian::unx::mode;
 
 using namespace std::chrono_literals;
 
-#if !defined(_WIN32)
 namespace {
 
 // Linux supports abstract Unix sockets (null-byte prefix, no filesystem entry).
-// FreeBSD and macOS only support file-based Unix sockets.
+// Linux, FreeBSD, macOS and Windows support file-based Unix sockets.
 #if defined(__linux__)
 constexpr auto unx_socket_mode = mode::abstract;
 #else
 constexpr auto unx_socket_mode = mode::file;
+#endif
+
+// std::filesystem cannot stat or remove AF_UNIX socket files on windows
+#if !defined(_WIN32)
+auto socket_path() -> string {
+  stringstream ss;
+  ss << "/tmp/thespian_endpoint_t_" << getpid();
+  return ss.str();
+}
+void remove_socket_file(const string &path) { ::unlink(path.c_str()); }
+#else
+auto socket_path() -> string {
+  return (std::filesystem::temp_directory_path() /
+          ("thespian_endpoint_t_" + std::to_string(::_getpid())))
+      .string();
+}
+void remove_socket_file(const string &path) { ::DeleteFileA(path.c_str()); }
 #endif
 
 struct controller {
@@ -92,9 +115,9 @@ struct controller {
 } // namespace
 
 auto endpoint_unx(context &ctx, bool &result, env_t env_) -> ::result {
-  stringstream ss;
-  ss << "/tmp/thespian_endpoint_t_" << getpid();
-  const string path = ss.str();
+  const string path = socket_path();
+  if (unx_socket_mode == mode::file)
+    remove_socket_file(path);
   return to_result(ctx.spawn_link(
       [path]() {
         link(env().proc("log"));
@@ -105,18 +128,11 @@ auto endpoint_unx(context &ctx, bool &result, env_t env_) -> ::result {
         });
         return ok();
       },
-      [&](auto s) {
+      [&result, path](auto s) {
+        if (unx_socket_mode == mode::file)
+          remove_socket_file(path);
         if (s == "success")
           result = true;
       },
       "endpoint_unx", move(env_)));
 }
-
-#else
-
-auto endpoint_unx(context &, bool &result, env_t) -> ::result {
-  result = true;
-  return ok();
-}
-
-#endif

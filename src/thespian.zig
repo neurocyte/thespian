@@ -523,6 +523,41 @@ pub const context = struct {
     }
 };
 
+/// Debug console: a line oriented TCP or unix socket interface for listing,
+/// messaging and tapping named actors. See include/thespian/debug.hpp for
+/// the protocol. Only actors spawned after `enable` can be addressed.
+pub const debug = struct {
+    pub fn enable(ctx: *const context) void {
+        c.thespian_debug_enable(ctx.context);
+    }
+
+    pub fn disable(ctx: *const context) void {
+        c.thespian_debug_disable(ctx.context);
+    }
+
+    pub fn isenabled(ctx: *const context) bool {
+        return c.thespian_debug_isenabled(ctx.context);
+    }
+
+    /// Start the console listening on [::1]:port. May be called from
+    /// outside of an actor. Send the returned pid any unrecognized message
+    /// (e.g. "shutdown") to stop listening.
+    pub fn tcp_create(ctx: *const context, port: u16, prompt: [:0]const u8) error{ThespianDebugTcpCreateFailed}!pid {
+        var handle_: c.thespian_handle = null;
+        try neg_to_error(c.thespian_debug_tcp_create(ctx.context, port, prompt.ptr, &handle_), error.ThespianDebugTcpCreateFailed);
+        return .{ .h = handle_ };
+    }
+
+    /// Start the console on a unix domain socket. In file mode the socket
+    /// is owner-only and removed when the console stops. May be called
+    /// from outside of an actor.
+    pub fn unx_create(ctx: *const context, path: [:0]const u8, mode: unx_mode, prompt: [:0]const u8) error{ThespianDebugUnxCreateFailed}!pid {
+        var handle_: c.thespian_handle = null;
+        try neg_to_error(c.thespian_debug_unx_create(ctx.context, path.ptr, @intFromEnum(mode), prompt.ptr, &handle_), error.ThespianDebugUnxCreateFailed);
+        return .{ .h = handle_ };
+    }
+};
+
 fn log_last_error(err: anytype) @TypeOf(err) {
     log.err("{any}: {s}", .{ err, c.thespian_get_last_error() });
     return err;
