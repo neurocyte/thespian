@@ -2,6 +2,10 @@
 #include <cbor/cbor.hpp>
 
 #include <array>
+#include <bit>
+#include <charconv>
+#include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -56,6 +60,22 @@ auto buffer::push_typed_val(int type, uint64_t value) -> void {
     push_back(value >> 8);
     push_back(value);
   }
+}
+
+auto buffer::push_float(float value) -> buffer & {
+  const auto bits = std::bit_cast<uint32_t>(value);
+  push_back(cbor_magic_float32);
+  for (int shift = 24; shift >= 0; shift -= 8)
+    push_back(static_cast<uint8_t>(bits >> shift));
+  return *this;
+}
+
+auto buffer::push_double(double value) -> buffer & {
+  const auto bits = std::bit_cast<uint64_t>(value);
+  push_back(cbor_magic_float64);
+  for (int shift = 56; shift >= 0; shift -= 8)
+    push_back(static_cast<uint8_t>(bits >> shift));
+  return *this;
 }
 
 auto buffer::push_string(const string &s) -> buffer & {
@@ -114,47 +134,60 @@ static auto match_literal(const char *str, json_iter &b, const json_iter &e)
   return false;
 }
 
-constexpr auto int_str_max = 3 * sizeof(uint64_t) + 1;
+constexpr auto number_str_max = 64;
+
+static auto match_digits(json_iter &b, const json_iter &e, string &s) -> bool {
+  const auto start = s.size();
+  while (b != e && *b >= '0' && *b <= '9') {
+    s.push_back(*b);
+    ++b;
+  }
+  return s.size() > start;
+}
 
 static auto push_json_number(buffer &buf, json_iter &b, const json_iter &e)
     -> bool {
-  const bool neg = match_char('-', b, e);
-  std::array<char, int_str_max> s{};
-  char *p = s.data();
-  char *se = s.data() + int_str_max;
-  if (b == e)
+  string s;
+  bool is_float{false};
+  if (match_char('-', b, e))
+    s.push_back('-');
+  if (!match_digits(b, e, s))
     return false;
-  char c = *b;
-  if (c >= '0' && c <= '9') {
+  if (b != e && *b == '.') {
+    is_float = true;
+    s.push_back('.');
     ++b;
-    *p = c;
-    ++p;
-    if (p == se)
+    if (!match_digits(b, e, s))
       return false;
-  } else
-    return false;
-  while (true) {
-    if (b == e)
-      break;
-    c = *b;
-    if (c >= '0' && c <= '9') {
-      ++b;
-      *p = c;
-      ++p;
-      if (p == se)
-        return false;
-    } else {
-      break;
-    }
   }
-  *p = 0;
-  char *ep = s.data();
-  int64_t i = strtoll(s.data(), &ep, 10);
-  if (ep != p)
+  if (b != e && (*b == 'e' || *b == 'E')) {
+    is_float = true;
+    s.push_back('e');
+    ++b;
+    if (b != e && (*b == '+' || *b == '-')) {
+      s.push_back(*b);
+      ++b;
+    }
+    if (!match_digits(b, e, s))
+      return false;
+  }
+  if (s.size() > number_str_max)
     return false;
-  if (neg)
-    i = -i;
-  buf.push_int(i);
+  const char *first = s.data();
+  const char *last = s.data() + s.size();
+  if (is_float) {
+    double d{};
+    const auto [p, ec] = std::from_chars(first, last, d);
+    if (ec != std::errc{} || p != last)
+      return false;
+    buf.push_double(d);
+  } else {
+    int64_t i{};
+    const auto [p, ec] = std::from_chars(first, last, i);
+    if (ec != std::errc{} || p != last)
+      return false;
+    buf.push_int(i);
+  }
   return true;
 }
 // NOLINTEND(*-pointer-arithmetic)
@@ -410,6 +443,40 @@ static auto decode_nint(uint8_t type, iter &b, const iter &e) -> int64_t {
   return -(decode_pint(type, b, e) + 1); // NOLINT(*-narrowing-conversions)
 }
 
+static auto decode_half(uint16_t h) -> double {
+  const int exp = (h >> 10) & 0x1f;
+  const int mant = h & 0x3ff;
+  double v{};
+  if (exp == 0)
+    v = std::ldexp(mant, -24);
+  else if (exp != 31)
+    v = std::ldexp(mant + 1024, exp - 25);
+  else
+    v = mant == 0 ? numeric_limits<double>::infinity()
+                  : numeric_limits<double>::quiet_NaN();
+  return (h & 0x8000) ? -v : v;
+}
+
+static auto decode_float(uint8_t type, iter &b, const iter &e) -> double {
+  switch (type) {
+  case cbor_magic_float16:
+    return decode_half(static_cast<uint16_t>(decode_int_length(2, b, e)));
+  case cbor_magic_float32:
+    return std::bit_cast<float>(
+        static_cast<uint32_t>(decode_int_length(4, b, e)));
+  case cbor_magic_float64:
+    return std::bit_cast<double>(
+        static_cast<uint64_t>(decode_int_length(8, b, e)));
+  default:
+    throw domain_error{"cbor invalid float type"};
+  }
+}
+
+static auto is_float_type(uint8_t type) -> bool {
+  return type == cbor_magic_float16 || type == cbor_magic_float32 ||
+         type == cbor_magic_float64;
+}
+
 static auto decode_string(uint8_t type, iter &b, const iter &e) -> string_view {
   auto len = decode_pint(type, b, e);
   const uint8_t *s = &*b;
@@ -515,6 +582,8 @@ static auto skip_value_type(uint8_t major, uint8_t minor, iter &b,
   case 6: // tag
     throw domain_error{"cbor unsupported type tag"};
   case 7: // special
+    if (minor >= 24)
+      decode_pint(minor, b, e);
     break;
   default:
     throw domain_error{"cbor unsupported type unknown"};
@@ -567,6 +636,10 @@ static auto match_type(iter &b, const iter &e, type &v) -> bool {
       v = type::null;
     else if (type == 0xf4 || type == 0xf5)
       v = type::boolean;
+    else if (is_float_type(type))
+      v = type::floating;
+    else
+      v = type::unknown;
     break;
   default:
     return false;
@@ -741,6 +814,41 @@ auto extract(bool &val) -> buffer::extractor {
   return [&val](iter &b, const iter &e) { return match_bool(b, e, val); };
 }
 
+namespace {
+static auto match_float(iter &b, const iter &e, double &v) -> bool {
+  const auto [major, minor, type] = decode_type(b, e);
+  switch (major) {
+  case 0: // positive integer
+    v = static_cast<double>(decode_pint(minor, b, e));
+    return true;
+  case 1: // negative integer
+    v = static_cast<double>(decode_nint(minor, b, e));
+    return true;
+  case 7: // special
+    if (!is_float_type(type))
+      return false;
+    v = decode_float(type, b, e);
+    return true;
+  default:
+    return false;
+  }
+}
+} // namespace
+
+auto extract(double &val) -> buffer::extractor {
+  return [&val](iter &b, const iter &e) { return match_float(b, e, val); };
+}
+
+auto extract(float &val) -> buffer::extractor {
+  return [&val](iter &b, const iter &e) {
+    double d{};
+    if (!match_float(b, e, d))
+      return false;
+    val = static_cast<float>(d);
+    return true;
+  };
+}
+
 auto extract(std::string &s) -> buffer::extractor {
   return [&s](iter &b, const iter &e) {
     string_view val;
@@ -817,6 +925,19 @@ static auto to_json(ostream &os, string_view s) -> ostream & {
   return os;
 }
 
+static auto float_to_json(ostream &ss, double v) -> void {
+  if (!std::isfinite(v)) {
+    ss << "null";
+    return;
+  }
+  std::array<char, number_str_max> s{};
+  const auto [p, ec] = std::to_chars(s.data(), s.data() + s.size(), v);
+  const string_view str{s.data(), static_cast<size_t>(p - s.data())};
+  ss << str;
+  if (str.find_first_of(".e") == string_view::npos)
+    ss << ".0";
+}
+
 static auto to_json_stream(ostream &ss, iter &b, const iter &e) -> void {
   const auto [major, minor, type] = decode_type(b, e);
   switch (major) {
@@ -876,6 +997,10 @@ static auto to_json_stream(ostream &ss, iter &b, const iter &e) -> void {
       ss << "true";
     else if (type == 0xf6)
       ss << "null";
+    else if (is_float_type(type))
+      float_to_json(ss, decode_float(type, b, e));
+    else
+      throw domain_error{"cbor unsupported simple value"};
   } break;
   default:
     throw domain_error{"cbor unsupported type unknown"};
