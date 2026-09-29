@@ -102,6 +102,7 @@ extern "C" auto runtestcase(const char *name) -> int {
   tests["cbor_match"] = cbor_match;
   tests["debug"] = debug;
   tests["debug_json"] = debug_json;
+  tests["debug_unx"] = debug_unx;
   tests["endpoint_unx"] = endpoint_unx;
   tests["endpoint_tcp"] = endpoint_tcp;
   tests["hub_filter"] = hub_filter;

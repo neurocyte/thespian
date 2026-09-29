@@ -2,6 +2,7 @@
 
 #include <thespian/c/context.h>
 #include <thespian/c/handle.h>
+#include <thespian/c/unx.h>
 
 // NOLINTBEGIN(modernize-*, hicpp-*)
 #include <stdbool.h>
@@ -20,6 +21,13 @@ bool thespian_debug_isenabled(thespian_context);
 // owns it and must call thespian_handle_destroy) and returns 0.
 int thespian_debug_tcp_create(thespian_context, uint16_t port,
                               const char *prompt, thespian_handle *handle);
+
+// Start the debug console on a unix domain socket, see
+// thespian::debug::unx::create. Same calling rules as
+// thespian_debug_tcp_create.
+int thespian_debug_unx_create(thespian_context, const char *path,
+                              thespian_unx_mode mode, const char *prompt,
+                              thespian_handle *handle);
 
 #ifdef __cplusplus
 }

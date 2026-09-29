@@ -16,6 +16,7 @@ using testcase = auto(thespian::context &ctx, bool &result, thespian::env_t env)
 testcase cbor_match;
 testcase debug;
 testcase debug_json;
+testcase debug_unx;
 testcase endpoint_tcp;
 testcase endpoint_unx;
 testcase hub_filter;

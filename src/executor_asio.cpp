@@ -435,7 +435,15 @@ struct socket_impl {
             h(ec, read);
         }));
   }
-  void close() { socket_.close(); }
+  void close() {
+#if defined(_WIN32)
+    // closing with a read pending resets the connection on windows instead
+    // of sending FIN
+    error_code ec;
+    socket_.shutdown(asio::socket_base::shutdown_send, ec);
+#endif
+    socket_.close();
+  }
   auto release() -> int { return socket_.release(); }
   auto local_endpoint() -> const endpoint & {
     auto ep = socket_.local_endpoint();

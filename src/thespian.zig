@@ -523,7 +523,7 @@ pub const context = struct {
     }
 };
 
-/// Debug console: a line oriented TCP interface on [::1]:port for listing,
+/// Debug console: a line oriented TCP or unix socket interface for listing,
 /// messaging and tapping named actors. See include/thespian/debug.hpp for
 /// the protocol. Only actors spawned after `enable` can be addressed.
 pub const debug = struct {
@@ -545,6 +545,15 @@ pub const debug = struct {
     pub fn tcp_create(ctx: *const context, port: u16, prompt: [:0]const u8) error{ThespianDebugTcpCreateFailed}!pid {
         var handle_: c.thespian_handle = null;
         try neg_to_error(c.thespian_debug_tcp_create(ctx.context, port, prompt.ptr, &handle_), error.ThespianDebugTcpCreateFailed);
+        return .{ .h = handle_ };
+    }
+
+    /// Start the console on a unix domain socket. In file mode the socket
+    /// is owner-only and removed when the console stops. Must be called
+    /// from within an actor.
+    pub fn unx_create(ctx: *const context, path: [:0]const u8, mode: unx_mode, prompt: [:0]const u8) error{ThespianDebugUnxCreateFailed}!pid {
+        var handle_: c.thespian_handle = null;
+        try neg_to_error(c.thespian_debug_unx_create(ctx.context, path.ptr, @intFromEnum(mode), prompt.ptr, &handle_), error.ThespianDebugUnxCreateFailed);
         return .{ .h = handle_ };
     }
 };

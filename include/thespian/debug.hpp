@@ -2,6 +2,7 @@
 
 #include "context.hpp"
 #include "handle.hpp"
+#include "unx.hpp"
 
 #include <string>
 
@@ -65,4 +66,17 @@ auto create(context &, port_t port, const std::string &prompt)
     -> expected<handle, error>;
 
 } // namespace tcp
+
+namespace unx {
+
+// Start the debug console on a unix domain socket. The protocol is the same
+// as for tcp::create. In file mode the socket is created with owner-only
+// permissions, a stale socket file left by a previous run is replaced, and
+// the file is removed when the console stops. On windows access is governed
+// by the ACLs of the socket's directory instead. Abstract sockets have no
+// permissions: any local process in the same network namespace can connect.
+auto create(context &, const std::string &path, ::thespian::unx::mode mode,
+            const std::string &prompt) -> expected<handle, error>;
+
+} // namespace unx
 } // namespace thespian::debug

@@ -238,6 +238,7 @@ pub fn build(b: *std.Build) void {
         "test/cbor_match.cpp",
         "test/debug.cpp",
         "test/debug_json.cpp",
+        "test/debug_unx.cpp",
         "test/endpoint_unx.cpp",
         "test/endpoint_tcp.cpp",
         "test/hub_filter.cpp",

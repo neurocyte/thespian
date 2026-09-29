@@ -19,6 +19,7 @@ const extract = thespian.extract;
 
 const socket = thespian.socket;
 const tcp_connector = thespian.tcp_connector;
+const unx_connector = thespian.unx_connector;
 const in6addr_loopback = thespian.in6addr_loopback;
 
 const port = 4244;
@@ -50,18 +51,29 @@ const Debuggee = struct {
     }
 };
 
+const Transport = union(enum) {
+    tcp: u16,
+    unx: [:0]const u8,
+};
+
+const Connector = union(enum) {
+    tcp: tcp_connector,
+    unx: unx_connector,
+};
+
 const Controller = struct {
     allocator: Allocator,
     ctx: *const thespian.context,
+    transport: Transport,
     console: pid,
     debuggee: pid,
-    connector: tcp_connector,
+    connector: Connector,
     sock: ?socket = null,
     lines: std.ArrayList(u8) = .empty,
     got_bye: bool = false,
     receiver: Receiver(*@This()),
 
-    const Args = struct { allocator: Allocator, ctx: *const thespian.context };
+    const Args = struct { allocator: Allocator, ctx: *const thespian.context, transport: Transport };
 
     fn start(args: Args) result {
         return init(args) catch |e| return exit_error(e, @errorReturnTrace());
@@ -69,15 +81,23 @@ const Controller = struct {
 
     fn init(args: Args) !void {
         _ = thespian.set_trap(true);
-        const console = try thespian.debug.tcp_create(args.ctx, port, "");
+        const console = switch (args.transport) {
+            .tcp => |port_| try thespian.debug.tcp_create(args.ctx, port_, ""),
+            .unx => |path| try thespian.debug.unx_create(args.ctx, path, .file, ""),
+        };
         errdefer console.deinit();
+        try console.link();
         const debuggee = try spawn_link(args.allocator, args.allocator, Debuggee.start, "zig_debuggee");
         errdefer debuggee.deinit();
-        const connector: tcp_connector = try .init("zig_debug_client");
+        const connector: Connector = switch (args.transport) {
+            .tcp => .{ .tcp = try .init("zig_debug_client") },
+            .unx => .{ .unx = try .init("zig_debug_client") },
+        };
         const self = try args.allocator.create(@This());
         self.* = .{
             .allocator = args.allocator,
             .ctx = args.ctx,
+            .transport = args.transport,
             .console = console,
             .debuggee = debuggee,
             .connector = connector,
@@ -90,7 +110,9 @@ const Controller = struct {
 
     fn deinit(self: *@This()) void {
         if (self.sock) |s| s.deinit();
-        self.connector.deinit();
+        switch (self.connector) {
+            inline else => |c| c.deinit(),
+        }
         self.lines.deinit(self.allocator);
         self.console.deinit();
         self.debuggee.deinit();
@@ -106,7 +128,10 @@ const Controller = struct {
         var buf: []const u8 = "";
         var written: i64 = 0;
         if (try m.match(.{"pong"})) {
-            try self.connector.connect(in6addr_loopback, port);
+            switch (self.connector) {
+                .tcp => |c| try c.connect(in6addr_loopback, self.transport.tcp),
+                .unx => |c| try c.connect(self.transport.unx, .file),
+            }
         } else if (try m.match(.{ "connector", "zig_debug_client", "connected", extract(&fd) })) {
             self.sock = try socket.init("zig_debug_client", fd);
             try self.sock.?.read();
@@ -125,6 +150,8 @@ const Controller = struct {
             if (!self.got_bye) return exit("closed_early");
             try self.console.send(.{"shutdown"});
             try self.debuggee.send(.{"shutdown"});
+        } else if (try m.match(.{ "exit", "closed" })) {
+            // the console stopped listening after "shutdown"
         } else if (try m.match(.{ "exit", "debuggee_shutdown" })) {
             thespian.debug.disable(self.ctx);
             return exit("success");
@@ -146,6 +173,17 @@ const Controller = struct {
 };
 
 test "debug console via zig bindings" {
+    try run_console_test(.{ .tcp = port });
+}
+
+test "debug console via zig bindings over a unix socket" {
+    const pid_ = if (@import("builtin").os.tag == .windows) std.os.windows.GetCurrentProcessId() else std.c.getpid();
+    var buf: [128]u8 = undefined;
+    const path = try std.fmt.bufPrintZ(&buf, "thespian_debug_zig_test_{d}.sock", .{pid_});
+    try run_console_test(.{ .unx = path });
+}
+
+fn run_console_test(transport: Transport) !void {
     const allocator = std.testing.allocator;
     var ctx = try thespian.context.init(allocator, .{});
     defer ctx.deinit();
@@ -164,7 +202,7 @@ test "debug console via zig bindings" {
         }
     }.handle);
 
-    _ = try ctx.spawn_link(Controller.Args{ .allocator = allocator, .ctx = &ctx }, Controller.start, "debug_zig_test", &exit_handler, null);
+    _ = try ctx.spawn_link(Controller.Args{ .allocator = allocator, .ctx = &ctx, .transport = transport }, Controller.start, "debug_zig_test", &exit_handler, null);
 
     ctx.run();
 
