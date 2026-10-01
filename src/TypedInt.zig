@@ -4,32 +4,32 @@ pub fn Tagged(T: type, tag: []const u8) type {
 
         pub const TAG = tag;
 
-        pub const empty: @This() = @enumFromInt(0);
+        pub const empty: @This() = @fromBackingInt(@intCast(0));
 
         pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
-            const value: T = @intFromEnum(self);
+            const value: T = @backingInt(self);
             try cbor.writeValue(writer, .{ TAG, value });
         }
 
         pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
             var value: T = 0;
             if (try cbor.matchValue(iter, .{ TAG, cbor.extract(&value) })) {
-                self.* = @enumFromInt(value);
+                self.* = @fromBackingInt(@intCast(value));
                 return true;
             }
             return false;
         }
 
         pub fn format(self: @This(), writer: *Writer) !void {
-            return writer.print("{s}:{d}", .{ TAG, @intFromEnum(self) });
+            return writer.print("{s}:{d}", .{ TAG, @backingInt(self) });
         }
 
         pub fn fromInt(v: T) @This() {
-            return @enumFromInt(v);
+            return @fromBackingInt(@intCast(v));
         }
 
         pub fn toInt(v: @This()) T {
-            return @intFromEnum(v);
+            return @backingInt(v);
         }
     };
 }
@@ -41,32 +41,32 @@ pub fn TaggedPtr(tag: []const u8) type {
         pub const T = usize;
         pub const TAG = tag;
 
-        pub const empty: @This() = @enumFromInt(0);
+        pub const empty: @This() = @fromBackingInt(@intCast(0));
 
         pub fn cborEncode(self: @This(), writer: *Writer) Writer.Error!void {
-            const value: T = @intFromEnum(self);
+            const value: T = @backingInt(self);
             try cbor.writeValue(writer, .{ TAG, value });
         }
 
         pub fn cborExtract(self: *@This(), iter: *[]const u8) cbor.Error!bool {
             var value: T = 0;
             if (try cbor.matchValue(iter, .{ TAG, cbor.extract(&value) })) {
-                self.* = @enumFromInt(value);
+                self.* = @fromBackingInt(@intCast(value));
                 return true;
             }
             return false;
         }
 
         pub fn format(self: @This(), writer: *Writer) !void {
-            return writer.print("{s}:0x{x}", .{ TAG, @intFromEnum(self) });
+            return writer.print("{s}:0x{x}", .{ TAG, @backingInt(self) });
         }
 
         pub fn fromPtr(p: anytype) @This() {
-            return @enumFromInt(@intFromPtr(p));
+            return @fromBackingInt(@intCast(@intFromPtr(p)));
         }
 
         pub fn toInt(v: @This()) T {
-            return @intFromEnum(v);
+            return @backingInt(v);
         }
     };
 }

@@ -179,7 +179,7 @@ test "debug console via zig bindings" {
 test "debug console via zig bindings over a unix socket" {
     const pid_ = if (@import("builtin").os.tag == .windows) std.os.windows.GetCurrentProcessId() else std.c.getpid();
     var buf: [128]u8 = undefined;
-    const path = try std.fmt.bufPrintZ(&buf, "thespian_debug_zig_test_{d}.sock", .{pid_});
+    const path = try std.fmt.bufPrintSentinel(&buf, "thespian_debug_zig_test_{d}.sock", .{pid_}, 0);
     try run_console_test(.{ .unx = path });
 }
 

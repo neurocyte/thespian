@@ -553,7 +553,7 @@ pub const debug = struct {
     /// from outside of an actor.
     pub fn unx_create(ctx: *const context, path: [:0]const u8, mode: unx_mode, prompt: [:0]const u8) error{ThespianDebugUnxCreateFailed}!pid {
         var handle_: c.thespian_handle = null;
-        try neg_to_error(c.thespian_debug_unx_create(ctx.context, path.ptr, @intFromEnum(mode), prompt.ptr, &handle_), error.ThespianDebugUnxCreateFailed);
+        try neg_to_error(c.thespian_debug_unx_create(ctx.context, path.ptr, @backingInt(mode), prompt.ptr, &handle_), error.ThespianDebugUnxCreateFailed);
         return .{ .h = handle_ };
     }
 };
@@ -930,7 +930,7 @@ pub const unx_acceptor = struct {
     }
 
     pub fn listen(self: *const Self, path: [:0]const u8, mode: unx_mode) !void {
-        const ret = c.thespian_unx_acceptor_listen(self.handle, path.ptr, @intFromEnum(mode));
+        const ret = c.thespian_unx_acceptor_listen(self.handle, path.ptr, @backingInt(mode));
         if (ret < 0) return error.ThespianUnxAcceptorListenFailed;
     }
 
@@ -954,7 +954,7 @@ pub const unx_connector = struct {
     }
 
     pub fn connect(self: *const Self, path: [:0]const u8, mode: unx_mode) !void {
-        const ret = c.thespian_unx_connector_connect(self.handle, path.ptr, @intFromEnum(mode));
+        const ret = c.thespian_unx_connector_connect(self.handle, path.ptr, @backingInt(mode));
         if (ret < 0) return error.ThespianUnxConnectorConnectFailed;
     }
 

@@ -296,8 +296,8 @@ const Proc = struct {
     fn handle_term(self: *Proc, term_: std.process.Child.Term) error{Exit} {
         (switch (term_) {
             .exited => |val| self.parent.send(.{ self.tag, "term", "exited", val }),
-            .signal => |val| self.parent.send(.{ self.tag, "term", "signal", @intFromEnum(val) }),
-            .stopped => |val| self.parent.send(.{ self.tag, "term", "stop", @intFromEnum(val) }),
+            .signal => |val| self.parent.send(.{ self.tag, "term", "signal", @backingInt(val) }),
+            .stopped => |val| self.parent.send(.{ self.tag, "term", "stop", @backingInt(val) }),
             .unknown => |val| self.parent.send(.{ self.tag, "term", "unknown", val }),
         }) catch {};
         return tp.exit_normal();

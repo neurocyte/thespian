@@ -989,7 +989,7 @@ const Child = struct {
                 if (filename.len == app_name_len) {
                     unappended_exists = true;
                 } else if (createProcessSupportsExtension(filename[app_name_len..])) |pathext_ext| {
-                    pathext_seen[@intFromEnum(pathext_ext)] = true;
+                    pathext_seen[@backingInt(pathext_ext)] = true;
                     any_pathext_seen = true;
                 }
             }
@@ -1050,7 +1050,7 @@ const Child = struct {
         var ext_it = mem.tokenizeScalar(u16, pathext, ';');
         while (ext_it.next()) |ext| {
             const ext_enum = createProcessSupportsExtension(ext) orelse continue;
-            if (!pathext_seen[@intFromEnum(ext_enum)]) continue;
+            if (!pathext_seen[@backingInt(ext_enum)]) continue;
 
             dir_buf.shrinkRetainingCapacity(dir_path_len);
             if (dir_path_len != 0) switch (dir_buf.items[dir_buf.items.len - 1]) {
