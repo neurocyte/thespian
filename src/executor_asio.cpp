@@ -12,6 +12,7 @@
 #include <asio/local/stream_protocol.hpp>
 #include <asio/signal_set.hpp>
 #include <asio/socket_base.hpp>
+#include <asio/post.hpp>
 #include <asio/strand.hpp>
 #include <asio/system_timer.hpp>
 #include <asio/thread.hpp>
@@ -31,6 +32,7 @@
 using asio::bind_executor;
 using asio::buffer;
 using asio::io_context;
+using strand_executor = asio::strand<io_context::executor_type>;
 using asio::string_view;
 using asio::system_timer;
 using asio::thread;
@@ -116,16 +118,16 @@ auto context::create(long thread_count) -> context {
 
 struct strand_impl {
   explicit strand_impl(const context_ref &ctx)
-      : ctx{ctx}, strand_{*ctx->asio} {}
+      : ctx{ctx}, strand_{asio::make_strand(*ctx->asio)} {}
   void post(function<void()> f) {
     ctx->posts.fetch_add(1);
-    strand_.post([&posts = ctx->posts, f = move(f)]() {
+    asio::post(strand_, [&posts = ctx->posts, f = move(f)]() {
       posts.fetch_sub(1);
       f();
     });
   }
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
 };
 
 auto context::create_strand() -> strand {
@@ -350,7 +352,7 @@ struct socket_impl {
   }
   auto remote_endpoint() -> const endpoint & { return remote_endpoint_; }
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   asio::ip::udp::socket socket_;
   asio::ip::udp::endpoint asio_remote_endpoint_;
   executor::endpoint local_endpoint_{};
@@ -452,7 +454,7 @@ struct socket_impl {
     return local_endpoint_;
   }
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   asio::ip::tcp::socket socket_;
   asio::ip::tcp::endpoint remote_endpoint_;
   executor::endpoint local_endpoint_{};
@@ -534,7 +536,7 @@ struct acceptor_impl {
     return local_endpoint_;
   }
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   asio::ip::tcp::acceptor acceptor_;
   asio::ip::tcp::socket socket_;
   executor::endpoint local_endpoint_{};
@@ -614,7 +616,7 @@ struct socket_impl {
   void close() { socket_.close(); }
   auto release() -> int { return socket_.release(); }
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   asio::local::stream_protocol::socket socket_;
   shared_ptr<bool> token_{make_shared<bool>(true)};
 };
@@ -673,7 +675,7 @@ struct acceptor_impl {
   }
   void close() { acceptor_.close(); }
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   asio::local::stream_protocol::acceptor acceptor_;
   asio::local::stream_protocol::socket socket_;
   shared_ptr<bool> token_{make_shared<bool>(true)};
@@ -743,7 +745,7 @@ struct watcher_impl {
   void cancel() { fd_.cancel(); }
 
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   stream_descriptor fd_;
   shared_ptr<bool> token_{make_shared<bool>(true)};
   bool read_in_progress_{false};
@@ -813,7 +815,7 @@ struct file_stream_impl {
   void cancel() { handle_.cancel(); }
 
   context_ref ctx;
-  io_context::strand strand_;
+  strand_executor strand_;
   asio::windows::stream_handle handle_;
   shared_ptr<bool> token_{make_shared<bool>(true)};
   std::array<char, receive_buffer_size> read_buffer_{};
