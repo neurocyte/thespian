@@ -232,6 +232,16 @@ static auto to_endpoint_udp(const in6_addr &ip, port_t port)
   return {to_address(ip), port};
 }
 
+// asio sets SO_NOSIGPIPE on accepted sockets, which fails with EINVAL on
+// macOS if the peer has already disconnected
+static auto is_aborted_accept([[maybe_unused]] const error_code &ec) -> bool {
+#if defined(__APPLE__)
+  return ec == asio::error::invalid_argument;
+#else
+  return false;
+#endif
+}
+
 } // namespace
 
 namespace thespian::executor {
@@ -519,13 +529,17 @@ struct acceptor_impl {
     weak_ptr<bool> weak_token{token_};
     acceptor_.async_accept(
         socket_,
-        bind_executor(strand_, [c = ctx, s = &socket_, h = move(h),
-                                t = move(weak_token)](const error_code &ec) {
+        bind_executor(strand_, [this, c = ctx, s = &socket_, h = move(h),
+                                t = move(weak_token)](
+                                   const error_code &ec) mutable {
           c->pending.fetch_sub(1, memory_order_relaxed);
-          if (auto p = t.lock())
+          if (auto p = t.lock()) {
+            if (is_aborted_accept(ec))
+              return accept(move(h));
             h(ec ? static_cast<asio::ip::tcp::socket::native_handle_type>(0)
                  : s->release(),
               ec);
+          }
         }));
   }
   void close() { acceptor_.close(); }
@@ -663,14 +677,18 @@ struct acceptor_impl {
     weak_ptr<bool> weak_token{token_};
     acceptor_.async_accept(
         socket_,
-        bind_executor(strand_, [c = ctx, s = &socket_, h = move(h),
-                                t = move(weak_token)](const error_code &ec) {
+        bind_executor(strand_, [this, c = ctx, s = &socket_, h = move(h),
+                                t = move(weak_token)](
+                                   const error_code &ec) mutable {
           c->pending.fetch_sub(1, memory_order_relaxed);
-          if (auto p = t.lock())
+          if (auto p = t.lock()) {
+            if (is_aborted_accept(ec))
+              return accept(move(h));
             h(ec ? static_cast<asio::local::stream_protocol::socket::
                                    native_handle_type>(0)
                  : s->release(),
               ec);
+          }
         }));
   }
   void close() { acceptor_.close(); }
