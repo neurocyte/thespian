@@ -48,8 +48,9 @@
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
-#include <afunix.h>                                                                                                      
-#include <windows.h>                                                                                                     
+
+#include <afunix.h>
+#include <windows.h>
 
 #endif
 
