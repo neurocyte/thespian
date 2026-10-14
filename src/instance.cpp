@@ -44,12 +44,12 @@
 
 #else
 
+#include <afunix.h>
 #include <in6addr.h>
+#include <windows.h>
 #include <winsock2.h>
 #include <ws2ipdef.h>
 #include <ws2tcpip.h>
-#include <afunix.h>
-#include <windows.h>
 
 #endif
 
@@ -74,19 +74,19 @@ using std::lock_guard;
 using std::make_pair;
 using std::make_shared;
 using std::map;
-using std::multimap;
 using std::memory_order_relaxed;
 using std::move;
+using std::multimap;
 using std::mutex;
 using std::pair;
 using std::shared_ptr;
-using std::weak_ptr;
 using std::string;
 using std::string_view;
 using std::stringstream;
 using std::swap;
 using std::unordered_map;
 using std::vector;
+using std::weak_ptr;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
 using std::chrono::system_clock;
@@ -666,7 +666,7 @@ auto context::spawn_link(behaviour b, exit_handler eh, string_view name)
 }
 
 auto instance_id(const handle &h) -> uintptr_t {
-  return handle_id(const_cast<handle &>(h));
+  return handle_id(const_cast<handle &>(h)); // NOLINT(*-const-cast)
 }
 
 namespace {
@@ -2147,8 +2147,7 @@ namespace tcp {
 namespace {
 
 auto value_type(const buffer &v) -> type {
-  return buffer::value_accessor{.b = v.raw_cbegin(), .e = v.raw_cend()}
-      .type_();
+  return buffer::value_accessor{.b = v.raw_cbegin(), .e = v.raw_cend()}.type_();
 }
 
 auto get_fields(const buffer &cmd) -> map<string, buffer> {
@@ -2224,8 +2223,9 @@ struct call_proxy {
     return exit();
   }
 
-  static auto start(handle conn, uint64_t seq, handle to, buffer msg,
-                    int64_t timeout_ms) -> expected<handle, error> {
+  static auto start(const handle &conn, uint64_t seq, const handle &to,
+                    const buffer &msg, int64_t timeout_ms)
+      -> expected<handle, error> {
     return spawn_link(
         [conn, seq, to, msg, timeout_ms]() -> result {
           auto p = make_shared<call_proxy>(conn, seq);
@@ -2519,16 +2519,15 @@ struct connection {
           extract(r))) {
       if (json_mode) {
         if (dir == "exit")
-          write_json(cbor::map("event", "tap", "actor", name, "dir", dir,
-                               "msg", r));
+          write_json(
+              cbor::map("event", "tap", "actor", name, "dir", dir, "msg", r));
         else
           write_json(cbor::map("event", "tap", "actor", name, "dir", dir,
                                "peer", peer, "msg", r));
       } else if (dir == "exit") {
         write_line("tap " + name + " exit " + r.to_json());
       } else {
-        write_line("tap " + name + " " + dir + " " + peer + " " +
-                   r.to_json());
+        write_line("tap " + name + " " + dir + " " + peer + " " + r.to_json());
       }
       return ok();
     }
@@ -2560,7 +2559,6 @@ struct connection {
         tag);
   }
 };
-
 
 struct tcp_listener {
   static constexpr string_view tag{"debug_acceptor_tcp"};
@@ -2641,8 +2639,8 @@ struct unx_listener {
   string path;
   bool owns_path{false};
 
-  unx_listener(string path_, ::thespian::unx::mode m) : path{move(path_)} {
-    owns_path = m == ::thespian::unx::mode::file;
+  unx_listener(string path_, ::thespian::unx::mode m)
+      : path{move(path_)}, owns_path(m == ::thespian::unx::mode::file) {
     if (owns_path and is_stale_socket(path))
       remove_file(path);
     a.listen(path, m);
@@ -2695,17 +2693,16 @@ template <typename Listener> struct acceptor {
   }
 
   template <typename... Args>
-  static auto start(context_impl &ctx, const string &prompt, Args... args)
-      -> expected<handle, error> {
+  static auto start(context_impl &ctx, const string &prompt,
+                    const Args &...args) -> expected<handle, error> {
     auto *caller = private_call_noexcept();
     return instance::spawn(
         ctx,
         [&ctx, prompt, args...]() {
-          ::thespian::receive(
-              [p{make_shared<acceptor>(ctx, prompt, args...)}](
-                  const auto &from, const auto &m) {
-                return p->receive(from, m);
-              });
+          ::thespian::receive([p{make_shared<acceptor>(ctx, prompt, args...)}](
+                                  const auto &from, const auto &m) {
+            return p->receive(from, m);
+          });
           return ok();
         },
         exit_handler{}, Listener::tag, thespian::ref{},
@@ -2725,8 +2722,7 @@ namespace unx {
 
 auto create(context &ctx, const string &path, ::thespian::unx::mode mode,
             const string &prompt) -> expected<handle, error> {
-  return tcp::acceptor<tcp::unx_listener>::start(impl(ctx), prompt, path,
-                                                  mode);
+  return tcp::acceptor<tcp::unx_listener>::start(impl(ctx), prompt, path, mode);
 }
 
 } // namespace unx
