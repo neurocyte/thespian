@@ -1139,6 +1139,7 @@ const CallContext = struct {
     response: ?message,
     a: std.mem.Allocator,
     done: std.Io.Event = .unset,
+    refs: std.atomic.Value(u8) = .init(2), // caller + actor; last one out frees
 
     const Self = @This();
     const ReceiverT = Receiver(*Self);
@@ -1155,21 +1156,28 @@ const CallContext = struct {
             .a = a,
         };
         self.receiver = ReceiverT.init(receive_, deinit_from_dtor, self);
-        const proc = try spawn_link(a, self, start, @typeName(Self));
+        const proc = spawn_link(a, self, start, @typeName(Self)) catch |e| {
+            self.from.deinit();
+            a.destroy(self);
+            return e;
+        };
         defer proc.deinit();
+        defer self.release();
         try self.done.waitTimeout(io, timeout_);
-        return self.response orelse .{};
+        const response = self.response orelse return .{};
+        self.response = null; // ownership passes to the caller
+        return response;
     }
 
-    fn deinit(self: *Self) void {
+    fn release(self: *Self) void {
+        if (self.refs.fetchSub(1, .acq_rel) != 1) return;
+        if (self.response) |response| self.a.free(response.buf); // never handed to the caller (timeout)
         self.a.destroy(self);
     }
 
     fn deinit_from_dtor(self: *Self) void {
-        // dtor fires after actor exits; only free if caller has already moved on (timed out or got response)
-        const expired = self.from.expired();
         self.from.deinit();
-        if (expired) self.deinit();
+        self.release();
     }
 
     fn start(self: *Self) result {
