@@ -116,7 +116,7 @@ pub fn build(b: *std.Build) void {
     thespian_mod.addIncludePath(b.path("include"));
     thespian_mod.linkLibrary(lib);
 
-    const remote_mod = b.createModule(.{
+    const remote_mod = b.addModule("remote", .{
         .root_source_file = b.path("src/remote/remote.zig"),
         .imports = &.{
             .{ .name = "cbor", .module = cbor_mod },
