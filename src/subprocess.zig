@@ -12,9 +12,13 @@ pub const max_chunk_size = 4096 - 32;
 pub const StdIo = std.process.SpawnOptions.StdIo;
 
 pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
+    return init_with_env(io, a, argv, tag, stdin_behavior, null);
+}
+
+pub fn init_with_env(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo, env: ?*const std.process.Environ.Map) !Self {
     return .{
         .io = io,
-        .pid = try Proc.create(io, a, argv, tag, stdin_behavior),
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, env),
         .stdin_behavior = stdin_behavior,
     };
 }
@@ -110,6 +114,7 @@ const Proc = struct {
     stdin_behavior: StdIo,
     parent: tp.pid,
     child: std.process.Child,
+    env: ?std.process.Environ.Map,
     tag: [:0]const u8,
     stdin_buffer: std.ArrayList(u8),
     fd_stdin: ?tp.file_descriptor = null,
@@ -120,7 +125,7 @@ const Proc = struct {
 
     const Receiver = tp.Receiver(*Proc);
 
-    fn create(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !tp.pid {
+    fn create(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo, env: ?*const std.process.Environ.Map) !tp.pid {
         var args = std.heap.ArenaAllocator.init(a);
         const args_a = args.allocator();
         errdefer args.deinit();
@@ -137,6 +142,9 @@ const Proc = struct {
             i += 1;
         }
 
+        var env_owned = if (env) |e| try e.clone(a) else null;
+        errdefer if (env_owned) |*e| e.deinit();
+
         const self: *Proc = try a.create(Proc);
         errdefer a.destroy(self);
         self.* = .{
@@ -148,6 +156,7 @@ const Proc = struct {
             .stdin_behavior = stdin_behavior,
             .parent = tp.self_pid().clone(),
             .child = undefined,
+            .env = env_owned,
             .tag = try a.dupeZ(u8, tag),
             .stdin_buffer = .empty,
         };
@@ -161,6 +170,7 @@ const Proc = struct {
         self.stdin_buffer.deinit(self.a);
         self.parent.deinit();
         self.args.deinit();
+        if (self.env) |*env| env.deinit();
         self.a.free(self.tag);
         self.a.destroy(self);
     }
@@ -173,8 +183,11 @@ const Proc = struct {
             .stdin = self.stdin_behavior,
             .stdout = .pipe,
             .stderr = .pipe,
+            .environ_map = if (self.env) |*env| env else null,
         }) catch |e| return self.handle_error(e);
         _ = self.args.reset(.free_all);
+        if (self.env) |*env| env.deinit();
+        self.env = null;
 
         if (self.stdin_behavior == .pipe)
             self.fd_stdin = tp.file_descriptor.init("stdin", self.child.stdin.?.handle) catch |e| return self.handle_error(e);
