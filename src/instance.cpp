@@ -1457,19 +1457,97 @@ auto unx_mode_path(mode m, string_view path) -> string {
   }
   return "unknown";
 }
+
+#if !defined(_WIN32)
+auto is_socket_file(const string &path) -> bool {
+  struct stat st{};
+  return ::lstat(path.c_str(), &st) == 0 and S_ISSOCK(st.st_mode);
+}
+
+auto connect_refused(const sockaddr_un &addr) -> bool {
+  const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd < 0)
+    return false;
+  const bool refused =
+      ::connect(fd, reinterpret_cast<const sockaddr *>(&addr), // NOLINT
+                sizeof(addr)) != 0 and
+      errno == ECONNREFUSED;
+  ::close(fd);
+  return refused;
+}
+
+void restrict_to_owner(const string &path) {
+  ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
+}
+#else
+auto is_socket_file(const string &path) -> bool {
+  WIN32_FIND_DATAA data{};
+  HANDLE h = ::FindFirstFileA(path.c_str(), &data);
+  if (h == INVALID_HANDLE_VALUE) // NOLINT
+    return false;
+  ::FindClose(h);
+  return (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) and
+         data.dwReserved0 == IO_REPARSE_TAG_AF_UNIX;
+}
+
+auto connect_refused(const sockaddr_un &addr) -> bool {
+  const SOCKET fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+  if (fd == INVALID_SOCKET)
+    return false;
+  const bool refused =
+      ::connect(fd, reinterpret_cast<const sockaddr *>(&addr), // NOLINT
+                sizeof(addr)) != 0 and
+      ::WSAGetLastError() == WSAECONNREFUSED;
+  ::closesocket(fd);
+  return refused;
+}
+
+void restrict_to_owner(const string & /*path*/) {}
+#endif
+
+auto is_stale_socket(const string &path) -> bool {
+  sockaddr_un addr{};
+  if (path.size() >= sizeof(addr.sun_path) or not is_socket_file(path))
+    return false;
+  addr.sun_family = AF_UNIX;
+  std::copy(path.begin(), path.end(), addr.sun_path); // NOLINT
+  return connect_refused(addr);
+}
+
+void remove_file(const string &path) {
+#if !defined(_WIN32)
+  ::unlink(path.c_str());
+#else
+  ::DeleteFileA(path.c_str());
+#endif
+}
 } // namespace
 
 struct acceptor_impl {
   explicit acceptor_impl(string_view tag)
       : owner_(private_call()), strand_(owner_.get_strand()),
         acceptor_(strand_), tag_(tag) {}
+  ~acceptor_impl() {
+    acceptor_.close();
+    release_path();
+  }
+  acceptor_impl(const acceptor_impl &) = delete;
+  acceptor_impl(acceptor_impl &&) = delete;
+  auto operator=(const acceptor_impl &) -> acceptor_impl & = delete;
+  auto operator=(acceptor_impl &&) -> acceptor_impl & = delete;
 
   void listen(string_view origpath, mode m) {
     private_call();
     const string path = unx_mode_path(m, origpath);
+    if (m == mode::file and is_stale_socket(path))
+      remove_file(path);
     if (auto ec = acceptor_.bind(path)) {
       auto _ = owner_.send("acceptor", tag_, "error", ec.value(), ec.message());
       return;
+    }
+    if (m == mode::file) {
+      path_ = path;
+      restrict_to_owner(path_);
     }
     if (auto ec = acceptor_.listen()) {
       auto _ = owner_.send("acceptor", tag_, "error", ec.value(), ec.message());
@@ -1503,14 +1581,23 @@ struct acceptor_impl {
   void close() {
     private_call();
     acceptor_.close();
+    release_path();
     auto _ = owner_.send("acceptor", tag_, "closed");
     open_ = false;
+  }
+
+  void release_path() {
+    if (path_.empty())
+      return;
+    remove_file(path_);
+    path_.clear();
   }
 
   instance &owner_;
   executor::strand strand_;
   executor::unx::acceptor acceptor_;
   string tag_;
+  string path_;
   bool open_{false};
   // expires when this is destroyed
   shared_ptr<bool> alive_{make_shared<bool>(true)};
@@ -2570,95 +2657,15 @@ struct tcp_listener {
   void listen_failed() {}
 };
 
-#if !defined(_WIN32)
-auto is_socket_file(const string &path) -> bool {
-  struct stat st{};
-  return ::lstat(path.c_str(), &st) == 0 and S_ISSOCK(st.st_mode);
-}
-
-auto connect_refused(const sockaddr_un &addr) -> bool {
-  const int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-  if (fd < 0)
-    return false;
-  const bool refused =
-      ::connect(fd, reinterpret_cast<const sockaddr *>(&addr), // NOLINT
-                sizeof(addr)) != 0 and
-      errno == ECONNREFUSED;
-  ::close(fd);
-  return refused;
-}
-
-void restrict_to_owner(const string &path) {
-  ::chmod(path.c_str(), S_IRUSR | S_IWUSR);
-}
-#else
-auto is_socket_file(const string &path) -> bool {
-  WIN32_FIND_DATAA data{};
-  HANDLE h = ::FindFirstFileA(path.c_str(), &data);
-  if (h == INVALID_HANDLE_VALUE) // NOLINT
-    return false;
-  ::FindClose(h);
-  return (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) and
-         data.dwReserved0 == IO_REPARSE_TAG_AF_UNIX;
-}
-
-auto connect_refused(const sockaddr_un &addr) -> bool {
-  const SOCKET fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-  if (fd == INVALID_SOCKET)
-    return false;
-  const bool refused =
-      ::connect(fd, reinterpret_cast<const sockaddr *>(&addr), // NOLINT
-                sizeof(addr)) != 0 and
-      ::WSAGetLastError() == WSAECONNREFUSED;
-  ::closesocket(fd);
-  return refused;
-}
-
-void restrict_to_owner(const string & /*path*/) {}
-#endif
-
-auto is_stale_socket(const string &path) -> bool {
-  sockaddr_un addr{};
-  if (path.size() >= sizeof(addr.sun_path) or not is_socket_file(path))
-    return false;
-  addr.sun_family = AF_UNIX;
-  std::copy(path.begin(), path.end(), addr.sun_path); // NOLINT
-  return connect_refused(addr);
-}
-
-void remove_file(const string &path) {
-#if !defined(_WIN32)
-  ::unlink(path.c_str());
-#else
-  ::DeleteFileA(path.c_str());
-#endif
-}
-
 struct unx_listener {
   static constexpr string_view tag{"debug_acceptor_unx"};
   ::thespian::unx::acceptor a{::thespian::unx::acceptor::create(tag)};
-  string path;
-  bool owns_path{false};
 
-  unx_listener(string path_, ::thespian::unx::mode m)
-      : path{move(path_)}, owns_path(m == ::thespian::unx::mode::file) {
-    if (owns_path and is_stale_socket(path))
-      remove_file(path);
+  unx_listener(const string &path, ::thespian::unx::mode m) {
     a.listen(path, m);
-    if (owns_path)
-      restrict_to_owner(path);
   }
-  ~unx_listener() {
-    if (owns_path)
-      remove_file(path);
-  }
-  unx_listener(const unx_listener &) = delete;
-  unx_listener(unx_listener &&) = delete;
-  auto operator=(const unx_listener &) -> unx_listener & = delete;
-  auto operator=(unx_listener &&) -> unx_listener & = delete;
-
   void close() { a.close(); }
-  void listen_failed() { owns_path = false; }
+  void listen_failed() {}
 };
 
 template <typename Listener> struct acceptor {
