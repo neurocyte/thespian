@@ -10,8 +10,12 @@ pub const max_chunk_size = 4096 - 32;
 pub const StdIo = std.process.SpawnOptions.StdIo;
 
 pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
+    return init_with_env(io, a, argv, tag, stdin_behavior, null);
+}
+
+pub fn init_with_env(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo, env: ?*const std.process.Environ.Map) !Self {
     return .{
-        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, false),
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, false, env),
         .stdin_behavior = stdin_behavior,
     };
 }
@@ -20,7 +24,7 @@ pub fn init(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u
 /// stdio child applications that expect it. stderr is left alone.
 pub fn init_overlapped(io: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo) !Self {
     return .{
-        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, true),
+        .pid = try Proc.create(io, a, argv, tag, stdin_behavior, true, null),
         .stdin_behavior = stdin_behavior,
     };
 }
@@ -109,6 +113,7 @@ const Proc = struct {
     args: std.heap.ArenaAllocator,
     parent: tp.pid,
     child: Child,
+    env: ?std.process.Environ.Map,
     tag: [:0]const u8,
     stdin_buffer: std.ArrayList(u8),
     stream_stdout: ?tp.file_stream = null,
@@ -116,7 +121,7 @@ const Proc = struct {
 
     const Receiver = tp.Receiver(*Proc);
 
-    fn create(_: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo, overlapped_child_pipes: bool) !tp.pid {
+    fn create(_: std.Io, a: std.mem.Allocator, argv: tp.message, tag: [:0]const u8, stdin_behavior: StdIo, overlapped_child_pipes: bool, env: ?*const std.process.Environ.Map) !tp.pid {
         const self: *Proc = try a.create(Proc);
 
         var args = std.heap.ArenaAllocator.init(a);
@@ -145,14 +150,17 @@ const Proc = struct {
             .args = args,
             .parent = tp.self_pid().clone(),
             .child = child,
+            .env = if (env) |e| try e.clone(a) else null,
             .tag = try a.dupeSentinel(u8, tag, 0),
             .stdin_buffer = .empty,
         };
+        if (self.env) |*e| self.child.env_map = e;
         return tp.spawn_link(a, self, Proc.start, tag);
     }
 
     fn deinit(self: *Proc) void {
         self.args.deinit();
+        if (self.env) |*env| env.deinit();
         if (self.stream_stdout) |stream| stream.deinit();
         if (self.stream_stderr) |stream| stream.deinit();
         self.stdin_buffer.deinit(self.a);
