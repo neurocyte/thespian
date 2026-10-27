@@ -4,6 +4,7 @@ const tp = @import("thespian");
 const cbor = @import("cbor");
 
 const tag = "EPCON";
+const flush_timeout_ms = 1000;
 
 extern "ws2_32" fn closesocket(s: usize) callconv(.c) c_int;
 
@@ -36,6 +37,9 @@ const Connection = struct {
     sock: tp.socket,
     endpoint: @import("endpoint_common.zig").create(@This()),
     receiver: tp.Receiver(*@This()),
+    unwritten: usize = 0,
+    exit_reason: ?[]const u8 = null,
+    flush_timeout: ?tp.timeout = null,
 
     const Args = struct {
         allocator: std.mem.Allocator,
@@ -66,6 +70,8 @@ const Connection = struct {
 
     fn deinit(self: *@This()) void {
         const allocator = self.endpoint.allocator;
+        if (self.flush_timeout) |*t| t.deinit();
+        if (self.exit_reason) |reason| allocator.free(reason);
         self.endpoint.deinit();
         self.sock.deinit();
         allocator.destroy(self);
@@ -78,6 +84,7 @@ const Connection = struct {
     fn receive_safe(self: *@This(), from: tp.pid_ref, m: tp.message) !void {
         var bytes: []const u8 = "";
         var reason: []const u8 = "";
+        var written: usize = 0;
 
         if (try m.match(.{ "socket", tag, "read_complete", tp.extract(&bytes) })) {
             if (bytes.len == 0) {
@@ -86,8 +93,9 @@ const Connection = struct {
             }
             try self.endpoint.feed(bytes);
             try self.sock.read();
-        } else if (try m.match(.{ "socket", tag, "write_complete", tp.any })) {
-            return;
+        } else if (try m.match(.{ "socket", tag, "write_complete", tp.extract(&written) })) {
+            self.unwritten -|= written;
+            if (self.unwritten == 0) if (self.exit_reason) |r| return self.close_and_exit(r);
         } else if (try m.match(.{ "socket", tag, "read_error", tp.any, tp.extract(&reason) })) {
             try self.endpoint.send_transport_error(reason);
             return tp.exit(reason);
@@ -97,14 +105,24 @@ const Connection = struct {
         } else if (try m.match(.{ "socket", tag, "closed" })) {
             return tp.exit("transport_closed");
         } else if (try m.match(.{ "exit", tp.extract(&reason) })) {
-            self.sock.close() catch {};
-            return tp.exit(reason);
+            if (self.unwritten == 0) return self.close_and_exit(reason);
+            if (self.exit_reason != null) return;
+            self.exit_reason = try self.endpoint.allocator.dupe(u8, reason);
+            self.flush_timeout = try tp.timeout.init_ms(flush_timeout_ms, tp.message.fmt(.{"flush_timeout"}));
+        } else if (try m.match(.{"flush_timeout"})) {
+            if (self.exit_reason) |r| return self.close_and_exit(r);
         } else {
             return self.endpoint.receive(from, m);
         }
     }
 
+    fn close_and_exit(self: *@This(), reason: []const u8) error{Exit} {
+        self.sock.close() catch {};
+        return tp.exit(reason);
+    }
+
     pub fn send_frame(self: *@This(), frame: []const u8) !void {
         try self.sock.write_binary(frame);
+        self.unwritten += frame.len;
     }
 };
