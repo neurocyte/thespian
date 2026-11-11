@@ -410,6 +410,16 @@ struct instance : std::enable_shared_from_this<instance> {
     return queue(handle{}, buffer::null_value);
   }
 
+  void unlink_exited(const handle &from) {
+    const auto id = thespian::instance_id(from);
+    if (!id)
+      return;
+    if (auto p = handle_ref(from).lock(); p && !p->is_in_shutdown())
+      return;
+    links_.remove_if(
+        [id](const handle &h) { return thespian::instance_id(h) == id; });
+  }
+
   void handle_exit(const buffer &m) {
     in_shutdown = true;
     for (const auto &h : links_)
@@ -463,6 +473,8 @@ struct instance : std::enable_shared_from_this<instance> {
       if (current_instance && current_instance != this)
         throw domain_error{context_error};
       current_instance = this;
+      if (is_exit_msg(msg))
+        unlink_exited(from);
       if (!trap_exit_ && is_exit_msg(msg)) {
         if (msg != exit_normal_msg)
           handle_exit(msg);
