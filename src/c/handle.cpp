@@ -83,4 +83,9 @@ auto thespian_handle_from_id(uintptr_t id) -> thespian_handle {
   return reinterpret_cast<thespian_handle>( // NOLINT(*-reinterpret-cast)
       new thespian::handle{std::move(h)});
 }
+
+void thespian_live_instances(thespian_instance_visitor visit, void *ctx) {
+  for (const auto &i : thespian::live_instances())
+    visit(ctx, i.id, {.base = i.name.data(), .len = i.name.size()});
+}
 }

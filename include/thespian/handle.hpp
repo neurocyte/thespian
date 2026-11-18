@@ -3,8 +3,11 @@
 #include <cbor/cbor.hpp>
 
 #include "expected.hpp"
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace thespian {
 
@@ -57,5 +60,14 @@ auto operator==(const handle &, const handle &) -> bool;
 /// an empty (expired) handle if the piid is unknown or the referenced
 /// actor has already been destroyed.
 [[nodiscard]] auto instance_by_id(uintptr_t id) -> handle;
+
+struct instance_info {
+  uintptr_t id;
+  std::string name;
+};
+
+/// Every live actor in the process, named or not, in instance id order. An
+/// actor that exits during the call is left out.
+[[nodiscard]] auto live_instances() -> std::vector<instance_info>;
 
 } // namespace thespian

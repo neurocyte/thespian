@@ -138,6 +138,48 @@ fn Pid(comptime own: Ownership) type {
 }
 pub const pid = Pid(.Owned);
 pub const pid_ref = Pid(.Wrapped);
+
+pub const Instance = struct {
+    id: piid,
+    name: []const u8,
+};
+
+/// live instances in instance id order
+/// free the result with free_instances
+pub fn live_instances(allocator: std.mem.Allocator) error{OutOfMemory}![]Instance {
+    const Collector = struct {
+        allocator: std.mem.Allocator,
+        list: std.ArrayList(Instance) = .empty,
+        failed: bool = false,
+
+        fn visit(ctx: ?*anyopaque, id: usize, name: c.c_string_view) callconv(.c) void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (self.failed) return;
+            self.add(id, if (name.len > 0) name.base[0..name.len] else "") catch {
+                self.failed = true;
+            };
+        }
+
+        fn add(self: *@This(), id: usize, name: []const u8) error{OutOfMemory}!void {
+            const owned = try self.allocator.dupe(u8, name);
+            errdefer self.allocator.free(owned);
+            try self.list.append(self.allocator, .{ .id = .fromInt(id), .name = owned });
+        }
+    };
+    var collector: Collector = .{ .allocator = allocator };
+    errdefer {
+        for (collector.list.items) |instance| allocator.free(instance.name);
+        collector.list.deinit(allocator);
+    }
+    c.thespian_live_instances(Collector.visit, &collector);
+    if (collector.failed) return error.OutOfMemory;
+    return collector.list.toOwnedSlice(allocator);
+}
+
+pub fn free_instances(allocator: std.mem.Allocator, instances: []Instance) void {
+    for (instances) |instance| allocator.free(instance.name);
+    allocator.free(instances);
+}
 fn wrap_handle(h: c.thespian_handle) pid_ref {
     return .{ .h = h };
 }

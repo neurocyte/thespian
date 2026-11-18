@@ -26,6 +26,12 @@ uintptr_t thespian_handle_id(thespian_handle);
 // must call `thespian_handle_destroy` on it.
 thespian_handle thespian_handle_from_id(uintptr_t);
 
+typedef void (*thespian_instance_visitor)(void *ctx, uintptr_t id,
+                                          c_string_view name);
+// Calls visit for every live actor in the process, named or not, in instance
+// id order. name is only valid during the call.
+void thespian_live_instances(thespian_instance_visitor visit, void *ctx);
+
 thespian_result thespian_handle_send_raw(thespian_handle, cbor_buffer);
 thespian_result thespian_handle_send_exit(thespian_handle, c_string_view);
 bool thespian_handle_is_expired(thespian_handle);

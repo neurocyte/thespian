@@ -21,6 +21,7 @@
 
 #include "executor.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <forward_list>
 #include <map>
@@ -701,6 +702,24 @@ auto instance_by_id(uintptr_t id) -> handle {
       r = it->second;
   }
   return make_handle(move(r));
+}
+
+auto live_instances() -> vector<instance_info> {
+  vector<pair<uintptr_t, ref>> refs;
+  {
+    std::scoped_lock lk{instances_mux};
+    refs.reserve(instances.size());
+    for (const auto &[id, r] : instances)
+      refs.emplace_back(id, r);
+  }
+  vector<instance_info> result;
+  result.reserve(refs.size());
+  for (const auto &[id, r] : refs)
+    if (auto p = r.lock())
+      result.push_back({.id = id, .name = p->name()});
+  std::ranges::sort(
+      result, [](const auto &a, const auto &b) -> auto { return a.id < b.id; });
+  return result;
 }
 
 auto env() -> env_t & { return private_call().env_; }
