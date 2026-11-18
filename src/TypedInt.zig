@@ -20,6 +20,27 @@ pub fn Tagged(T: type, tag: []const u8) type {
             return false;
         }
 
+        /// a match pattern extractor that accepts the tagged form or a plain T
+        pub fn extractCoerce(dest: *@This()) Extractor {
+            return .{ .dest = dest };
+        }
+
+        const TaggedT = @This();
+        pub const Extractor = struct {
+            dest: *TaggedT,
+
+            pub const EXTRACTOR_TAG = struct {};
+
+            pub fn extract(self: @This(), iter: *[]const u8) cbor.Error!bool {
+                var value: T = 0;
+                if (try cbor.matchValue(iter, cbor.extract(&value))) {
+                    self.dest.* = @fromBackingInt(value);
+                    return true;
+                }
+                return self.dest.cborExtract(iter);
+            }
+        };
+
         pub fn format(self: @This(), writer: *Writer) !void {
             return writer.print("{s}:{d}", .{ TAG, @backingInt(self) });
         }
