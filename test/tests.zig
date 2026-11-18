@@ -13,6 +13,7 @@ pub const remote_endpoint_tcp = @import("remote_endpoint_tcp_test.zig");
 pub const remote_endpoint_unx = @import("remote_endpoint_unx_test.zig");
 pub const remote_endpoint_unx_file = @import("remote_endpoint_unx_file_test.zig");
 pub const live_instances = @import("live_instances_test.zig");
+pub const tap_instance = @import("tap_instance_test.zig");
 
 test {
     std.testing.refAllDecls(@This());

@@ -656,6 +656,20 @@ pub fn Receiver(comptime T: type) type {
     };
 }
 
+/// receive the messages sent to and by the actor with instance id, and its exit, as
+///   ["debug_tap_id", id, "recv", from_id, from_name, msg]
+///   ["debug_tap_id", id, "send", to_id, to_name, msg]
+///   ["debug_tap_id", id, "exit", 0, "", msg]
+/// ids are plain integers. a tap ends when the calling actor exits or calls untap_instance
+pub fn tap_instance(id: piid) void {
+    c.thespian_tap_instance(id.toInt());
+}
+
+/// stop tapping id. returns false if there was no such tap
+pub fn untap_instance(id: piid) bool {
+    return c.thespian_untap_instance(id.toInt());
+}
+
 pub fn get_trap() bool {
     return c.thespian_get_trap();
 }

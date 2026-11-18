@@ -120,6 +120,7 @@ struct context_impl : context {
   atomic<size_t> debug_enabled{0};
 
   multimap<string, handle> taps;
+  multimap<uintptr_t, handle> id_taps;
   mutex taps_mux;
   atomic<size_t> tap_count{0};
 
@@ -178,9 +179,12 @@ auto get_names(context_impl &ctx) -> buffer;
 auto is_tapping(context_impl &ctx) -> bool {
   return ctx.tap_count.load(memory_order_relaxed) > 0;
 }
-void tap_message(context_impl &ctx, const string &to, const handle &from,
-                 const buffer &m);
-void tap_exit(context_impl &ctx, const string &name, const buffer &m);
+void tap_message(context_impl &ctx, const string &to, uintptr_t to_id,
+                 const handle &from, const buffer &m);
+void tap_exit(context_impl &ctx, const string &name, uintptr_t id,
+              const buffer &m);
+void tap_id_add(context_impl &ctx, uintptr_t id, const handle &sub);
+auto tap_id_remove(context_impl &ctx, uintptr_t id, const handle &sub) -> bool;
 } // namespace
 
 } // namespace debug
@@ -399,7 +403,7 @@ struct instance : std::enable_shared_from_this<instance> {
     if (in_shutdown)
       return deadsend(m, handle_ref(from));
     if (debug::is_tapping(ctx) and not m.is_null())
-      debug::tap_message(ctx, name_, from, m);
+      debug::tap_message(ctx, name_, instance_id_, from, m);
 
     auto run_m = [this, from{move(from)}, m{move(m)}, lifelock{lifetime_}]() {
       run(from, m);
@@ -427,7 +431,7 @@ struct instance : std::enable_shared_from_this<instance> {
       auto _ = h.send_raw(m);
     do_trace(channel::lifetime, "exit", m);
     if (debug::is_tapping(ctx))
-      debug::tap_exit(ctx, name_, m);
+      debug::tap_exit(ctx, name_, instance_id_, m);
     if (!exit_handlers_.empty()) {
       forward_list<exit_handler> exit_handlers;
       exit_handlers.swap(exit_handlers_);
@@ -735,6 +739,14 @@ auto spawn_link(behaviour b, string_view name, env_t env)
 auto send_raw(buffer m) -> result { return private_call().send_raw(move(m)); }
 void receive(receiver r) { private_call().receive(move(r)); }
 void receive_sync(sync_receiver r) { private_call().receive_sync(move(r)); }
+auto tap_instance(uintptr_t id) -> void {
+  auto &p = private_call();
+  debug::tap_id_add(p.ctx, id, make_handle(ref{p.lifetime_}));
+}
+auto untap_instance(uintptr_t id) -> bool {
+  auto &p = private_call();
+  return debug::tap_id_remove(p.ctx, id, make_handle(ref{p.lifetime_}));
+}
 auto trap() -> bool { return private_call().trap(); }
 auto trap(bool t) -> bool { return private_call().trap(t); }
 auto observe_links() -> bool { return private_call().observe_links(); }
@@ -2204,12 +2216,29 @@ void tap_deliver(const vector<handle> &subs, const buffer &ev) {
       auto _ = p->queue(handle{}, ev);
 }
 
-void tap_message(context_impl &ctx, const string &to, const handle &from,
-                 const buffer &m) {
+auto tap_id_subscribers(context_impl &ctx, uintptr_t id) -> vector<handle> {
+  vector<handle> subs;
+  const std::scoped_lock lock(ctx.taps_mux);
+  auto [b, e] = ctx.id_taps.equal_range(id);
+  while (b != e) {
+    if (b->second.expired()) {
+      b = ctx.id_taps.erase(b);
+      ctx.tap_count.fetch_sub(1, memory_order_relaxed);
+    } else {
+      subs.push_back(b->second);
+      ++b;
+    }
+  }
+  return subs;
+}
+
+void tap_message(context_impl &ctx, const string &to, uintptr_t to_id,
+                 const handle &from, const buffer &m) {
   if (in_tap)
     return;
   in_tap = true;
   auto from_name = instance_name(from);
+  auto from_id = instance_id(from);
   if (not to.empty()) {
     auto subs = tap_subscribers(ctx, to);
     if (not subs.empty())
@@ -2220,21 +2249,70 @@ void tap_message(context_impl &ctx, const string &to, const handle &from,
     if (not subs.empty())
       tap_deliver(subs, array("debug_tap", from_name, "send", to, m));
   }
+  if (to_id) {
+    auto subs = tap_id_subscribers(ctx, to_id);
+    if (not subs.empty())
+      tap_deliver(subs, array("debug_tap_id", static_cast<uint64_t>(to_id),
+                              "recv", static_cast<uint64_t>(from_id),
+                              from_name, m));
+  }
+  if (from_id) {
+    auto subs = tap_id_subscribers(ctx, from_id);
+    if (not subs.empty())
+      tap_deliver(subs, array("debug_tap_id", static_cast<uint64_t>(from_id),
+                              "send", static_cast<uint64_t>(to_id), to, m));
+  }
   in_tap = false;
 }
 
-void tap_exit(context_impl &ctx, const string &name, const buffer &m) {
-  if (in_tap or name.empty())
+void tap_exit(context_impl &ctx, const string &name, uintptr_t id,
+              const buffer &m) {
+  if (in_tap)
     return;
   in_tap = true;
-  auto subs = tap_subscribers(ctx, name);
-  if (not subs.empty())
-    tap_deliver(subs, array("debug_tap", name, "exit", "", m));
+  if (not name.empty()) {
+    auto subs = tap_subscribers(ctx, name);
+    if (not subs.empty())
+      tap_deliver(subs, array("debug_tap", name, "exit", "", m));
+  }
+  if (id) {
+    auto subs = tap_id_subscribers(ctx, id);
+    if (not subs.empty())
+      tap_deliver(subs, array("debug_tap_id", static_cast<uint64_t>(id),
+                              "exit", static_cast<uint64_t>(0), "", m));
+  }
   in_tap = false;
+}
+
+void tap_id_add(context_impl &ctx, uintptr_t id, const handle &sub) {
+  const std::scoped_lock lock(ctx.taps_mux);
+  auto [b, e] = ctx.id_taps.equal_range(id);
+  for (; b != e; ++b)
+    if (b->second == sub)
+      return;
+  ctx.id_taps.emplace(id, sub);
+  ctx.tap_count.fetch_add(1, memory_order_relaxed);
+}
+
+// an id of 0 removes all id taps held by sub
+auto tap_id_remove(context_impl &ctx, uintptr_t id, const handle &sub)
+    -> bool {
+  bool found{false};
+  const std::scoped_lock lock(ctx.taps_mux);
+  for (auto it = ctx.id_taps.begin(); it != ctx.id_taps.end();) {
+    if ((id == 0 or it->first == id) and it->second == sub) {
+      it = ctx.id_taps.erase(it);
+      ctx.tap_count.fetch_sub(1, memory_order_relaxed);
+      found = true;
+    } else {
+      ++it;
+    }
+  }
+  return found;
 }
 
 void tap_add(context_impl &ctx, const string &name, const handle &sub) {
-  const lock_guard<mutex> lock(ctx.taps_mux);
+  const std::scoped_lock lock(ctx.taps_mux);
   auto [b, e] = ctx.taps.equal_range(name);
   for (; b != e; ++b)
     if (b->second == sub)
@@ -2247,7 +2325,7 @@ void tap_add(context_impl &ctx, const string &name, const handle &sub) {
 auto tap_remove(context_impl &ctx, const string &name, const handle &sub)
     -> bool {
   bool found{false};
-  const lock_guard<mutex> lock(ctx.taps_mux);
+  const std::scoped_lock lock(ctx.taps_mux);
   for (auto it = ctx.taps.begin(); it != ctx.taps.end();) {
     if ((name.empty() or it->first == name) and it->second == sub) {
       it = ctx.taps.erase(it);

@@ -28,6 +28,17 @@ auto observe_links() -> bool;
 auto observe_links(bool) -> bool;
 auto link(const handle &) -> void;
 
+// Receive the messages sent to and by the actor with instance id, and its
+// exit, as messages to the calling actor:
+//   ["debug_tap_id", id, "recv", from_id, from_name, msg]
+//   ["debug_tap_id", id, "send", to_id, to_name, msg]
+//   ["debug_tap_id", id, "exit", 0, "", msg]
+// A tap ends when the calling actor exits or calls untap_instance.
+auto tap_instance(uintptr_t id) -> void;
+// Stop tapping id, or all taps of the calling actor with an id of 0.
+// Returns false if there was no such tap.
+auto untap_instance(uintptr_t id) -> bool;
+
 auto self() -> handle;
 auto self_ref() -> handle&;
 

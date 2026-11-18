@@ -24,6 +24,8 @@ bool thespian_set_trap(bool);
 bool thespian_get_observe_links();
 bool thespian_set_observe_links(bool);
 void thespian_link(thespian_handle);
+void thespian_tap_instance(uintptr_t id);
+bool thespian_untap_instance(uintptr_t id);
 
 thespian_handle thespian_self();
 

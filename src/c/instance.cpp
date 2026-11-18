@@ -30,6 +30,11 @@ void thespian_receive(thespian_receiver r, thespian_behaviour_state s,
   });
 }
 
+void thespian_tap_instance(uintptr_t id) { thespian::tap_instance(id); }
+auto thespian_untap_instance(uintptr_t id) -> bool {
+  return thespian::untap_instance(id);
+}
+
 auto thespian_get_trap() -> bool { return thespian::trap(); }
 auto thespian_set_trap(bool on) -> bool { return thespian::trap(on); }
 
