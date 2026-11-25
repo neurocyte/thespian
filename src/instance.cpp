@@ -427,6 +427,7 @@ struct instance : std::enable_shared_from_this<instance> {
 
   void handle_exit(const buffer &m) {
     in_shutdown = true;
+    exit_msg_ = m;
     for (const auto &h : links_)
       auto _ = h.send_raw(m);
     do_trace(channel::lifetime, "exit", m);
@@ -454,6 +455,11 @@ struct instance : std::enable_shared_from_this<instance> {
     ZoneScopedN("actor");
 #endif
     if (is_link_msg(msg)) {
+      if (in_shutdown) {
+        if (auto p = handle_ref(from).lock())
+          auto _ = p->queue(self_ref_, exit_msg_);
+        return;
+      }
       if (!observe_links_)
         do_trace(channel::execute, "run");
       do_trace_to(channel::link, "link", handle_ref(from));
@@ -588,6 +594,7 @@ struct instance : std::enable_shared_from_this<instance> {
   bool trap_exit_{false};
   bool observe_links_{false};
   bool in_shutdown{false};
+  buffer exit_msg_;
   forward_list<handle> links_;
   env_t env_;
 };
